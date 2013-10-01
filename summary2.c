@@ -7,6 +7,7 @@ $Operations Logic & details
 	#Enforce MTU of 1400 bytes
 	#Use 64K bytes buffer for receiving
 	//?Is it okay to use select()? or are threads better?
+	//?so for us, routing and forwarding table would be the same?
 
 $Interface to link layer
 	#struct with UDP sockfd, IP addr, portno
@@ -22,27 +23,35 @@ $IP Packets
 	*unpack in network byte order
 	*ignore IP options
 
-*Make the decision: Local Delivery VS Forwarding
+#Make the decision: Local Delivery VS Forwarding
 
 $Forwarding
 	//?What does a forwarding table look like?
-	//?How do I give RIP info to the module?
 	//?What constitutes the forwarding table? is it an external file?
 
+$Routing
+	*routing table behaviors
+		-regular update: send out RIP packets
+		-triggered update: send out RIP packets
+		//?anything else?
+	-routing table fields
+		+------------------------+------+--------------------------+
+		|departing interface VIP | cost | destination interface VIP|
+		+------------------------+------+--------------------------+
+		//?Is this how it looks?
+
 $Local Delivery (what exactly is this? packet meant for this computer?
-	*Make an abstract interface that lets upper protocols register handlers
+	?Make an abstract interface that lets upper protocols register handlers
 		typedef void (*handler_t) (interface_t *, struct ip*)
 		void net_register_handler(uint8_t protocol_num, handler_t handler)
-	*if RIP -> routing, else -> print
+	?RIP -> give to routing, else -> print
 
 $Command-line commands
-	*"interfaces"
-	*"routes"
-	*"down(int)"
-	*"up(int)"
-	*"send(vip, proto, string)"
-
-
+	#"interfaces"
+	#"routes"
+	#"down(int)"
+	#"up(int)"
+	#"send(vip, proto, string)"
 
 $Learning to use helpful stuff
 	*Try manually parsing and running AB.net
@@ -52,4 +61,11 @@ $Learning to use helpful stuff
 	//list.c: where would this come in handy? list of socket interfaces?
 	//list.c is used for parselinks.c 
 	//hashtable.c: where would I use this? Is this the body of the forwarding table?
+
+
+
+
+
+routing table example
+
 	
