@@ -1,0 +1,79 @@
+IP PDF
+
+[INTRODUCTION]
+-Build a Virtual IP Network
+	-udp is your link layer
+	*support dynamic routing
+		-each node will 1) be configured with links config file at startup and 2) support (de)activation at run time
+		-a simple routing protocol will dynamically update the nodes' routing tables
+
+[REQUIREMENTS]
+-Two parts: forwarding and routing
+-The network will be a set of processes
+*Write a network topology file (.net) and pass it to net2lnx to get the config files all the nodes.
+	Then, run the node executable and pass in the node config file
+
+[FORWARDING]
+-Again, UDP is the link layer
+*For each node, an interface per neighbor (which will be a UDP socket)
+	-every line in the links file = a neighbor
+-Encapsulate virtual IP packets as payloads of UDP packets
+*MTU of 1400 bytes: the LINK LAYER PACKET should not be larger than 1400 bytes
+*For receiving, use a 64k bytes buffer.
+*provide an abstract interface to the link layer
+	-Meaning, don't directly make calls on socket file descriptors from the forwarding code.
+	?Again, meaning, your forwarding code shouldn't have to deal directly with socket fds?
+	*define a interface structure (?struct?) containing the following info:
+		1) Link's UDP socket
+		2) Link's IP addr
+		3) Link's port number
+	*Then pass the structure to functions which wrap around the socket calls (accept, sendto, receivefrom)
+*The IP packet header is available in /usr/include/netinet/ip.h as .... struct ip
+*You should be able to deal with IP options by ignoring them
+*Read packets from link layer -> 1) local delivery (if same network) 2) forwarding (if not)
+*Make an interface between the network layer and the upper layers for LOCAL DELIVERY -> some packets must be given to RIP, but others can be just printed
+-IP protocol field: 200 for RIP and 0 for others
+*The said interface must allow an upper layer to register a "handler" for a given protocol number.
+	-typedef void (*handler_t) (interfae_t *, struct ip *);
+	-void net_register_handler(uint8_t protocol_num, handler_t handler);
+	
+
+[ROUTING]
+*converting back from network byte order: Is that going to be my job or mani's?
+
+
+[DRIVER]
+*Features that must be demonstrated by the system. Following commands must be implemented
+	interfaces | print info about each interface (1per line)
+	routes | print info about the route to each known dest.
+	down (int) | bring an interface down
+	up (int)| bring an interface up (an interface that has been downed)
+	send (vip, proto, string) | Send IP packet with proto to vip containing string
+-Might not be a bad idea to expand this so TCP tests can be done
+
+[SCRIPTS]
+*net2lnx: .net ->> .lnx
+*runNode ~.lnx: runs a node
+*runNodeWin ~.lnx: runs a node in a separate xterm window
+*runNetwork ~.net: Starts all nodes in a network
+
+
+[SAMPLE NETWORKS]
+*AB.net
+	A.lnx: localhost:portnum vip localhost:portnum vip
+	?So which one is the node's own info?
+*loop.net
+	*Make sure that packets from src go to dst.
+
+[SUPPORT CODE AND UTILITIES]
+	-parselinks.c, parselinks.h: parse a .lnx file into a struct lnxlink
+		*write program that uses functions from this module
+	-dbg.c, dbg.h, dbg_modes.h, colordef.h: debugging stuff- runNode enables this, so don't worry about it.
+		*see dbg_modes.h
+	-ipsum.c, ipsum.h: calculate IP checksum
+	-Linked list: list.h
+		*see parselinks.c to figure out how to use this
+		?should I use this?
+	-Hashtable:
+		?Which one should I use? glib? where can I find out more about it?
+
