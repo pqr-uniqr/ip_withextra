@@ -26,6 +26,7 @@ $DEFINITIONS
 		typedef struct
 			int udp_sockfd
 			int port_no
+			int up
 			struct ip *dest_addr
 		interface_t 
 
