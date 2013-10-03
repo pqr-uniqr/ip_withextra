@@ -28,14 +28,19 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
+<<<<<<< HEAD
 #include <stdbool.h>
 
+=======
+#include "csupport/colordefs.h"
+>>>>>>> 1e3f5efe0e95341eb8cc1e5e2387881b43bc2cdd
 
 #define RECVBUFSIZE 65536
 #define CMDBUFSIZE 1024
 #define LOCALDELIVERY 1
 #define FORWARD 0
 
+<<<<<<< HEAD
 typedef struct{
 	int id;
 	int sockfd;
@@ -54,6 +59,11 @@ typedef struct {
 	bool local;
 }rtu_routing_entry;
 
+=======
+int interface_count = 0;
+list_t *ref;
+int parse_lxnFile(char *filename);
+>>>>>>> 1e3f5efe0e95341eb8cc1e5e2387881b43bc2cdd
 
 
 	void
@@ -134,6 +144,7 @@ main ( int argc, char *argv[] )
 
 
 	
+<<<<<<< HEAD
 	//<-SETUP->
 	if(setup_interface(argv[1]) == -1){
 		printf("setup_interface() went wrong\n");
@@ -192,5 +203,86 @@ main ( int argc, char *argv[] )
 
 
 
+=======
+	parse_lxnFile(argv[1]);
+	
+>>>>>>> 1e3f5efe0e95341eb8cc1e5e2387881b43bc2cdd
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */
+
+
+/*
+ * == setup_interface(char *filename) =================================================
+ * 
+ * 
+ * ====================================================================================
+ */ 
+
+int get_addr(char *portnum, struct addrinfo *addr, int type, int local) {
+	
+	
+	int status;
+	struct addrinfo hints;
+	
+	memset(&hints, 0, sizeof hints);
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = type;
+	
+	if (local == 1) {
+		hints.ai_flags = AI_PASSIVE;
+	}
+	
+	if ((status = getaddrinfo(NULL, portnum, &hints, &addr)) != 0) {
+		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+		return -1;
+	}
+	
+	return 1;
+}
+
+
+int parse_lxnFile(char *filename) {
+	
+	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
+	ref = parse_links(filename);
+	
+	node_t *curr;
+	int i = 1;
+	
+	for (curr = ref->head; curr != NULL; curr = curr->next) {
+		
+		
+        link_t *sing = (link_t *)curr->data;
+        
+        printf(_BLUE_"\t%s\t%d\t\t%s\t\n"_BLUE_, sing->local_phys_host,sing->local_phys_port, inet_ntoa(sing->local_virt_ip));
+		printf(_BLUE_"\t%s\t%d\t\t%s\t\n"_BLUE_, sing->remote_phys_host,sing->remote_phys_port, inet_ntoa(sing->remote_virt_ip));
+		
+	}
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
