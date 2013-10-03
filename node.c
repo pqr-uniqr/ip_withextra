@@ -10,11 +10,24 @@
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  YOUR NAME (), 
- *   Organization:  
+ *         Author:  Hyun Sik (Pete) Kim, Mani Askari
+ *   Organization:  Brown University
  *
  * =====================================================================================
  */
+
+#include "csupport/parselinks.c"
+#include "csupport/list.c"
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <errno.h>
 
 
 #define RECVBUFSIZE 65536
@@ -23,8 +36,6 @@
 
 
 
-
-#include	<stdlib.h>
 
 /* 
  * ===  FUNCTION  ======================================================================
@@ -35,5 +46,6 @@
 	int
 main ( int argc, char *argv[] )
 {
+	
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */
