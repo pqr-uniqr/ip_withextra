@@ -17,3 +17,23 @@
  */
 
 
+#define RECVBUFSIZE 65536
+#define LOCALDELIVERY 1
+#define FORWARD 0
+
+
+
+
+#include	<stdlib.h>
+
+/* 
+ * ===  FUNCTION  ======================================================================
+ *         Name:  main
+ *  Description:  
+ * =====================================================================================
+ */
+	int
+main ( int argc, char *argv[] )
+{
+	return EXIT_SUCCESS;
+}				/* ----------  end of function main  ---------- */

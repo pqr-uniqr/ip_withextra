@@ -1,4 +1,8 @@
 
+
+
+
+
 ----------------------------------------------------------------------------------------------------------------------------
 $DEFINITIONS
 	*Functions
@@ -28,6 +32,7 @@ $DEFINITIONS
 			int port_no
 			int up
 			struct ip *dest_addr
+			<-CONCERN->What exactly do we need for ip
 		interface_t 
 
 	*Macros
@@ -53,6 +58,32 @@ $SETUP
 		<-QUESTION-> Is this how I'd use it
 
 	*set up for select() call
+
+
+	*Updating 
+	*send routing tables & etc to neighbors
+
+98.73893: Bringing up 10.116.89.15798.73895: ->10.10.168.73 : MAKE SOCKET
+98.73899: Creating receive thread on interface from 10.116.89.15798.73901:  to 10.10.168.73: 
+
+
+98.73905: route: updating routing table with own interfaces: 
+98.73908: route: Found new route to 10.116.89.157, cost=0.
+Node all set [ CTRL-D / CTRL-C to exit ]
+	for each interface in list_of_interfaces:
+		route_update(interface -> vip)
+
+
+98.73914: route: sending out requests to all our interfaces
+	
+98.73921: route: Regular update.
+98.73923: Sending routing table to everyone.
+98.73923: Sending routing table to interface 10.116.89.157
+98.73925: Sending update to 10.10.168.73
+98.73926: route-table has size 1
+98.73927:     cost=0, fwd=10.116.89.157
+98.73929: route: updating routing table with own interfaces
+98.73930: route: Refreshing entry for 10.116.89.157, cost still 0.
 
 
 ----------------------------------------------------------------------------------------------------------------------------
