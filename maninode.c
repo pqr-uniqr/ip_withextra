@@ -1,10 +1,8 @@
-#include "parselinks.c"
-#include "list.c"
+#include "csupport/parselinks.c"
+#include "csupport/list.c"
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <readline/readline.h>
-#include <readline/history.h>
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -13,8 +11,8 @@
 #include <string.h>
 #include <errno.h>
 
-#include "node.h"
-#include "util/colordefs.h"
+#include "maninode.h"
+#include "csupport/colordefs.h"
 
 typedef struct sockaddr_in 	SOCKETADDR;
 typedef struct Interface 	Interface;
@@ -22,14 +20,16 @@ struct Interface{
 	SOCKETADDR socket_address;
 };
 
+
 list_t *ref;
 list_t *routes;
 uint32_t num_entries = 1;
 void rout_table_print();
 
+
 int main(int argc, char *argv[]) {
 	
-	// part 1
+	// part 1: read in lnx file and 
 	
 	char *linkFile = argv[1];
 	printf(_NORMAL_"Link File -> \"%s\"\n", argv[1]);
@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
 	FD_SET(0, &master);
 	
 	char input[BUFSIZE];
-	int n;
+	//int n;
 	
 	for (;;) {
 		
