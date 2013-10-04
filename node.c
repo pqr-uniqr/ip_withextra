@@ -30,11 +30,13 @@
 #include <errno.h>
 #include "csupport/colordefs.h"
 
-#define RECVBUFSIZE 65536
-#define LOCALDELIVERY 1
-#define FORWARD 0
+#define RECVBUFSIZE 	65536
+#define LOCALDELIVERY 	1
+#define FORWARD 		0
+#define UP 				1
+#define DOWN 			0
 
-int interface_count = 0;
+int interface_count = 	0;
 list_t *ref;
 int parse_lxnFile(char *filename);
 
@@ -47,19 +49,11 @@ int parse_lxnFile(char *filename);
 	int
 main ( int argc, char *argv[] )
 {
-	
-	parse_lxnFile(argv[1]);
-	
+		
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */
 
 
-/*
- * == setup_interface(char *filename) =================================================
- * 
- * 
- * ====================================================================================
- */ 
 
 int get_addr(char *portnum, struct addrinfo *addr, int type, int local) {
 	
@@ -88,20 +82,25 @@ int parse_lxnFile(char *filename) {
 	
 	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
 	ref = parse_links(filename);
-	
 	node_t *curr;
 	int i = 1;
+	int sockfd;
+	struct addrinfo srcaddr, destaddr;
 	
 	for (curr = ref->head; curr != NULL; curr = curr->next) {
 		
-		
         link_t *sing = (link_t *)curr->data;
-        
-        printf(_BLUE_"\t%s\t%d\t\t%s\t\n"_BLUE_, sing->local_phys_host,sing->local_phys_port, inet_ntoa(sing->local_virt_ip));
-		printf(_BLUE_"\t%s\t%d\t\t%s\t\n"_BLUE_, sing->remote_phys_host,sing->remote_phys_port, inet_ntoa(sing->remote_virt_ip));
-		
+        interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
+        inf->id 		= ++interface_count;
+        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1, 1);
+        inf->sourceaddr = srcaddr->ai_addr;
+        inf->desaddr	= get_addr(sing->remote_phys_port, &destaddr, 0, 1);
+        inf->sourcevip	= sing->local_virt_ip;
+        inf->destaddr	= sing->remote_virt_ip;
+        inf->status 	= UP;
+       
 	}
-	
+		
 }
 
 
