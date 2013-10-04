@@ -30,55 +30,13 @@
 #include <errno.h>
 #include <stdbool.h>
 #include "csupport/colordefs.h"
+#include "node.h"
 
-#define RECVBUFSIZE 	65536
-#define LOCALDELIVERY 	1
-#define FORWARD 	0
-#define UP 		1
-#define DOWN 		0
-#define CMDBUFSIZE 	1024
+interface_t *only_interface;
+rtu_routing_entry *only_entry;
+int interface_count = 0;
+list_t *links;
 
-
-int interface_count = 	0;
-list_t *ref;
-struct interface_t *only_interface;
-struct rtu_routing_entry *only_entry;
-
-int parse_lxnFile(char *filename);
-
-typedef struct{
-	int id;
-	int sockfd;
-	struct sockaddr *sourceaddr;
-	struct sockaddr *destaddr;
-	uint32_t sourcevip;
-	uint32_t destvip;
-	bool status;
-}interface_t;
-
-
-typedef struct {
-	uint32_t cost;
-	uint32_t addr;
-	uint32_t nexthop;
-	time_t refreshtime;
-	bool local;
-}rtu_routing_entry;
-
-
-//Function forward declarations
-int get_socket (uint16_t portnum, struct addrinfo **source, int type, int local);
-void print_interfaces();
-void print_routes();
-int setup_interface(char *filename);
-int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
-
-/* 
- * ===  FUNCTION  ======================================================================
- *         Name:  main
- *  Description:  
- * =====================================================================================
- */
 int main ( int argc, char *argv[] )
 {
 
@@ -87,7 +45,6 @@ int main ( int argc, char *argv[] )
 		exit(1);
 	}
 
-	//<-SETUP->
 	if(setup_interface(argv[1]) == -1){
 		printf("setup_interface() went wrong\n");
 		exit(1);
@@ -95,6 +52,7 @@ int main ( int argc, char *argv[] )
 
 	//only_entry = local_routing_setup(only_interface);
 	int maxfd;
+
 	//<-WARNING->Intentionally did not set up FD for the socket: not necessary at this point
 	fd_set readfds;
 	fd_set masterfds;
@@ -108,6 +66,7 @@ int main ( int argc, char *argv[] )
 
 	char command[CMDBUFSIZE];
 	int command_bytes;
+
 	while(1){
 		readfds = masterfds;
 		tvcopy = tv;
@@ -142,76 +101,81 @@ int main ( int argc, char *argv[] )
 }				/* ----------  end of function main  ---------- */
 
 
-int setup_interface(char *filename) {
-	
-	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
-	ref = parse_links(filename);
-	node_t *curr;
-	int i = 1;
-	int sockfd;
-	struct addrinfo *srcaddr, *destaddr;
-	
-	for (curr = ref->head; curr != NULL; curr = curr->next) {
-		
-        link_t *sing = (link_t *)curr->data;
-        interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-        inf->id 	= ++interface_count;
-        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM, 1);
-        inf->sourceaddr = srcaddr->ai_addr;
-		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
-		inf->destaddr = destaddr->ai_addr;
-        inf->sourcevip	= sing->local_virt_ip.s_addr;
-        inf->destvip	= sing->remote_virt_ip.s_addr;
-        inf->status 	= UP;
-				
-	}
-	
-		
-}
-
-
 int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
 	
 	int status;
 	struct addrinfo hints;
+	char port[32];
+	sprintf(port, "%u", portnum);
 	
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = type;
 	
-	if (local == 1) {
+	if(local){	
 		hints.ai_flags = AI_PASSIVE;
 	}
-	char port[32];
-	sprintf(port, "%u", portnum);
+	
 	if ((status = getaddrinfo(NULL, port, &hints, addr)) != 0) {
 		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
 		return -1;
 	}
+	
 	return 1;
 }
 
 
-int get_socket (uint16_t portnum, struct addrinfo **source, int type, int local)
-{
+
+int setup_interface(char *filename) {
+	
+	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
+	links = parse_links(filename);
+	node_t *curr;
+	struct addrinfo *srcaddr, *destaddr;
+	
+	for (curr = links->head; curr != NULL; curr = curr->next) {
+		
+		link_t *sing = (link_t *)curr->data;
+        interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
+        inf->id 	= ++interface_count;
+        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
+        inf->sourceaddr = srcaddr->ai_addr;
+        get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
+		inf->destaddr = destaddr->ai_addr;
+		inf->sourcevip = sing->local_virt_ip.s_addr;
+        inf->destvip = sing->remote_virt_ip.s_addr;
+        inf->status 	= UP;
+		//<-WARNING->this line is temporary
+		only_interface = inf;
+	}
+	
+	return 0;
+}
+
+        
+
+int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
+	
 	struct addrinfo *p;
 	int sockfd, yes = 1;
 
-	if(get_addr(portnum, source, type, local) == -1){
+	if(get_addr(portnum, source, type, 1) == -1){
 		printf("get_addr()\n");
 		exit(1);
 	}
-	
+ 
 	for(p = *source; p!=NULL; p=p->ai_next){
 		if((sockfd= socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
 			perror("socket()");
 			continue;
 		}
+
 		if(bind(sockfd, p->ai_addr, p->ai_addrlen) != 0){
 			perror("bind()");
 			close(sockfd);
 			continue;
 		}
+
 		if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
 			perror("setsockopt()");
 			exit(1);
@@ -221,6 +185,16 @@ int get_socket (uint16_t portnum, struct addrinfo **source, int type, int local)
 	
 	return sockfd;
 }	/* -----  end of function get_socket  ----- */
+
+
+void print_interfaces () 
+{
+}		/* -----  end of function print_interface  ----- */
+
+
+void print_routes () 
+{
+}		/* -----  end of function print_routes  ----- */
 
 
 

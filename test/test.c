@@ -16,13 +16,6 @@ main ( int argc, char *argv[] )
 	int command_bytes;
 	command_bytes = read(0, command, sizeof command);
 
-
-	int portnum = 12;
-	char port[16];
-	sscanf(&portnum,"%s", port);
-	sscanf(port,"%s", portnum);
-	pritnf("portnummm %s\n", port);
-
 	command[command_bytes] = '\0';
 
 	crintf("%s\n", command);
