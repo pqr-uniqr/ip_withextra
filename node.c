@@ -41,20 +41,20 @@
 
 int interface_count = 	0;
 list_t *ref;
+
 struct interface_t *only_interface;
 struct rtu_routing_entry *only_entry;
-
-int parse_lxnFile(char *filename);
 
 typedef struct{
 	int id;
 	int sockfd;
-	struct sockaddr sourceaddr;
-	struct sockaddr destaddr;
+	struct sockaddr *sourceaddr;
+	struct sockaddr *destaddr;
 	uint32_t sourcevip;
 	uint32_t destvip;
 	bool status;
 }interface_t;
+
 
 typedef struct {
 	uint32_t cost;
@@ -66,11 +66,12 @@ typedef struct {
 
 
 //Function forward declarations
-int get_socket (char *portnum, struct addrinfo *source, int type, int local);
+int get_socket (uint16_t portnum, struct addrinfo *source, int type);
+int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local);
 void print_interfaces();
 void print_routes();
-int parse_lxnFile(char *filename);
-int get_addr(char *portnum, struct addrinfo *addr, int type, int local);
+int setup_interface(char *filename);
+
 
 /* 
  * ===  FUNCTION  ======================================================================
@@ -86,13 +87,14 @@ int main ( int argc, char *argv[] )
 		exit(1);
 	}
 
-	//<-SETUP->
+	//
 	if(setup_interface(argv[1]) == -1){
 		printf("setup_interface() went wrong\n");
 		exit(1);
 	}
 
-	only_entry = local_routing_setup(only_interface);
+	//only_entry = local_routing_setup(only_interface);
+	int maxfd;
 
 	//<-WARNING->Intentionally did not set up FD for the socket: not necessary at this point
 	fd_set readfds;
@@ -109,14 +111,14 @@ int main ( int argc, char *argv[] )
 	int command_bytes;
 	while(1){
 		readfds = masterfds;
-		tvcop = tv;
-		if(select(maxfd+1, &readfds, NULL, NULL, &tvcop) == -1){
+		tvcopy = tv;
+		if(select(maxfd+1, &readfds, NULL, NULL, &tvcopy) == -1){
 			perror("select()");
 			exit(1);
 		}
 
 		printf("select() released\n");
-		if(FD_ISSET(0)){
+		if(FD_ISSET(0, &readfds)){
 			command_bytes = read(0, command, CMDBUFSIZE);
 
 			if(command_bytes == -1){
@@ -144,7 +146,7 @@ int main ( int argc, char *argv[] )
 
 
 
-int get_addr(char *portnum, struct addrinfo *addr, int type, int local) {
+int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local) {
 	
 	int status;
 	struct addrinfo hints;
@@ -153,7 +155,8 @@ int get_addr(char *portnum, struct addrinfo *addr, int type, int local) {
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = type;
 	
-	if (local == 1) {
+
+	if(local){	
 		hints.ai_flags = AI_PASSIVE;
 	}
 	
@@ -166,7 +169,7 @@ int get_addr(char *portnum, struct addrinfo *addr, int type, int local) {
 }
 
 
-int parse_lxnFile(char *filename) {
+int setup_interface(char *filename) {
 	
 	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
 	ref = parse_links(filename);
@@ -179,19 +182,22 @@ int parse_lxnFile(char *filename) {
 		
         	link_t *sing = (link_t *)curr->data;
         	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-
         	inf->id 	= ++interface_count;
 
-        	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1, 1);
-        	inf->sourceaddr = srcaddr->ai_addr;
-		get_addr(sing->remote_phys_port, &destaddr, 0, 1);
-		inf->destaddr = destaddr;
-        	//inf->desaddr	= get_addr(sing->remote_phys_port, &destaddr, 0, 1);
+        	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1);
+        	inf->sourceaddr = srcaddr.ai_addr;
+
+		get_addr(sing->remote_phys_port, &destaddr, 0, 0);
+		inf->destaddr = destaddr.ai_addr;
+
         	inf->sourcevip	= sing->local_virt_ip;
         	inf->destaddr	= sing->remote_virt_ip;
         	inf->status 	= UP;
+
+		//specific to one-node
+		only_interface = inf;
 	}
-		
+
 }
 
 
@@ -217,12 +223,15 @@ void print_routes ()
  *  Description:  
  * =====================================================================================
  */
-int get_socket (char *portnum, struct addrinfo *source, int type, int local)
+int get_socket (uint16_t portnum, struct addrinfo *source, int type)
 {
 	struct addrinfo *p;
 	int sockfd, yes = 1;
 
-	if(get_addr(portnum, source, type, local) == -1){
+	char port[16];
+	sscanf(portnum, "%s", port);
+
+	if(get_addr(portnum, source, type, 1) == -1){
 		printf("get_addr()\n");
 		exit(1);
 	}
