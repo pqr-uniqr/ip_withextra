@@ -19,7 +19,7 @@
 $Definitions
 	*global variable
 	*structs
-		struct interface_t{
+		#struct interface_t{
 			int id;
 			int sockfd;
 			sockaddr sourceaddr;
@@ -29,7 +29,7 @@ $Definitions
 			bool status;
 		}
 
-		struct rtu_routing_entry{
+		#struct rtu_routing_entry{
 			uint32_t cost;
 			uint32_t addr;
 			uint32_t nexthop;
@@ -51,6 +51,12 @@ $Definitions
 			*make sockaddrs
 			*set up the sockets
 			*store the vips
+
+		int get_socket(char *portnum, struct addrinfo *source, int type)
+			*returns sockfd
+			*use getaddrinfo on both local and remote ports
+
+		int get_addr(char * portnum, struct sockaddr *addr, int type, int local)
 
 		rtu_routing_entry *local_routing_setup(struct interface_t *interface)
 			-this function takes in an interface struct and gives back

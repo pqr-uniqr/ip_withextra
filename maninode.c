@@ -86,8 +86,6 @@ int main(int argc, char *argv[]) {
 	struct route_entry *ent;
 	
 	for (curr = ref->head; curr != NULL; curr = curr->next) {
-		
-		
 		link_t *sing = (link_t *)curr->data;
 		ent = (struct route_entry *)malloc(sizeof(struct route_entry));
 		ent->rtu_id = num_entries;
@@ -95,7 +93,6 @@ int main(int argc, char *argv[]) {
 		ent->rtu_cost = 0;
 		ent->rtu_status = (uint8_t)1;
 		list_append(routes, (void *)ent);
-		
 	}
 	
 	
