@@ -55,6 +55,7 @@ typedef struct{
 	bool status;
 }interface_t;
 
+
 typedef struct {
 	uint32_t cost;
 	uint32_t addr;
@@ -85,7 +86,7 @@ void print_routes ()
  *  Description:  
  * =====================================================================================
  */
-int get_socket (char *port, struct addrinfo *source, int type, int local)
+int get_socket (int port, struct addrinfo *source, int type, int local)
 {
 	struct addrinfo *p;
 	int sockfd, yes = 1;
@@ -193,7 +194,7 @@ int main ( int argc, char *argv[] )
 
 
 
-int get_addr(char *portnum, struct addrinfo *addr, int type, int local) {
+int get_addr(int portnum, struct addrinfo *addr, int type) {
 	
 	
 	int status;
@@ -230,9 +231,9 @@ int parse_lxnFile(char *filename) {
         link_t *sing = (link_t *)curr->data;
         interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
         inf->id 		= ++interface_count;
-        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1, 1);
+        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1);
         inf->sourceaddr = srcaddr->ai_addr;
-        inf->desaddr	= get_addr(sing->remote_phys_port, &destaddr, 0, 1);
+        get_addr(sing->remote_phys_port, &destaddr, 0);
         inf->sourcevip	= sing->local_virt_ip;
         inf->destaddr	= sing->remote_virt_ip;
         inf->status 	= UP;
