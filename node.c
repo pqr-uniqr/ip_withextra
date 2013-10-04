@@ -38,6 +38,7 @@
 int interface_count = 0, maxfd;
 list_t  *interfaces;
 fd_set masterfds;
+list_t *routes;
 
 int main ( int argc, char *argv[] )
 {
@@ -46,7 +47,6 @@ int main ( int argc, char *argv[] )
 		printf("usage: node lnxfilename\n");
 		exit(1);
 	}
-
 
 	fd_set readfds;
 	FD_ZERO(&readfds);
@@ -61,7 +61,10 @@ int main ( int argc, char *argv[] )
 		printf("setup_interface() went wrong\n");
 		exit(1);
 	}
-
+	if (init_routing_table() == -1) {
+		printf(_RED_"ERROR : init_routing table\n");
+		exit(1);
+	}
 
 	//only_entry = local_routing_setup(only_interface);
 
@@ -75,8 +78,6 @@ int main ( int argc, char *argv[] )
 			perror("select()");
 			exit(1);
 		}
-
-		printf("select() released\n");
 
 		if(FD_ISSET(0, &readfds)){
 			memset(command,0,CMDBUFSIZE);
@@ -116,6 +117,29 @@ int main ( int argc, char *argv[] )
 }				/* ----------  end of function main  ---------- */
 
 
+int init_routing_table() {
+	
+	list_init(&routes);
+	node_t *curr; 
+
+	
+	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
+		
+		interface_t *inf = (interface_t *)curr->data;
+		rtu_routing_entry *rtu = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
+		if (rtu == NULL) {
+			return -1;
+		}
+		rtu->cost = 0;
+		rtu->nexthop = inf->sourcevip;
+		rtu->addr = inf->sourcevip;
+		rtu->local = 1;
+		
+		list_append(routes, rtu);
+	}
+	return 0;
+}
+
 
 int setup_interface(char *filename) {
 
@@ -129,7 +153,7 @@ int setup_interface(char *filename) {
 	for (curr = links->head; curr != NULL; curr = curr->next) {
 		
 		link_t *sing = (link_t *)curr->data;
-        	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
+        	interface_t *inf = (interface_t *)malloc(sizeof(interface_t *));
         	inf->id 	= ++interface_count;
         	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
 		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
@@ -242,6 +266,24 @@ void print_interfaces ()
 
 void print_routes () 
 {
+	
+	printf(_BLUE_"\t ---- ROUTING TABLE ---- \n");
+	node_t *curr;
+	char src[INET_ADDRSTRLEN];
+	char nexthop[INET_ADDRSTRLEN];
+	
+	for(curr = routes->head;curr!=NULL;curr=curr->next){
+		
+		rtu_routing_entry *rtu_entry = (rtu_routing_entry *)curr->data;
+		inet_ntop(AF_INET, ((struct in_addr *)&(rtu_entry->addr)), src, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, ((struct in_addr *)&(rtu_entry->nexthop)), nexthop, INET_ADDRSTRLEN);
+		printf("\t  Address \t  Next Hop \tCost\tLocal\n");
+		printf("\t |-------------|------------ |--------|------|\n");
+		
+		printf("\t %s\t%s\t%d\t%s\n",src, nexthop, rtu_entry->cost, (rtu_entry->local == 1) ? "YES" : "NO");
+		
+	}
+	
 }		/* -----  end of function print_routes  ----- */
 
 

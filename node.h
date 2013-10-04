@@ -10,7 +10,6 @@
 #include <errno.h>
 #include <stdbool.h>
 
-
 #define RECVBUFSIZE 	65536
 #define CMDBUFSIZE 	1024
 
@@ -25,8 +24,10 @@ int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
 void print_interfaces();
 void print_routes();
 int setup_interface(char *filename);
+int init_routing_table();
 
-typedef struct interface_t interface_t;
+typedef struct interface_t 			interface_t;
+typedef struct rtu_routing_entry 	rtu_routing_entry;
 
 struct interface_t{
 	int id;
@@ -38,11 +39,10 @@ struct interface_t{
 	bool status;
 };
 
-typedef struct {
+struct rtu_routing_entry {
 	uint32_t cost;
 	uint32_t addr;
 	uint32_t nexthop;
-	time_t refreshtime;
 	bool local;
-}rtu_routing_entry;
+};
 
