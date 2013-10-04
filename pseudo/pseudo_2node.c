@@ -35,9 +35,10 @@ $DEFINITIONS
 			bool status;	
 		}
 
-		#struct route_entry{
+		#struct rtu_routing_entry{
 			uint32_t cost;
 			uint32_t addr;
+			uint32_t nexthop;
 			bool local;
 		}
 	Functions
@@ -52,17 +53,25 @@ $DEFINITIONS
 			-gets the address of both "local" ports and "remote" ports.
 			-"remote" addresses are stored inside interface and used for 
 			sending packets later
+		*send_request(interface_t *dest)
+			*malloc a request RIP packet
+			*send_packet()
 		*prepare_ip_packet(vip,proto,string)
 			*look up interface to send to on routing table
-		*send_packet()
+		*send_packet(interface, data, protocol)
+
 		#void print_interfaces()
-		void print_routes()
+		#void print_routes()
 
 $SETUP
-	*setup file descriptor sets(readfds and masterfds)
-	*setup interfaces
+	#setup file descriptor sets(readfds and masterfds)
+	#setup interfaces
 	*set up routing table with own interfaces
-	*send out "hello" to own interface
+		*init_routin_table: make a list_t filled with all the interfaces
+	*send out RIP request packet to own interfaces
+		*craft the RIP request packet
+		*enclose the RIP packet inside the IP packet
+		*send it to every interface
 
 $EVENT LOOP
 	*select()
@@ -70,9 +79,11 @@ $EVENT LOOP
 		#"interfaces"
 		*"routes"
 		*"send vip() proto(hardcoded to IP 0) string"
-			-prepare packet: prepare_ip_packet(vip, proto, string)
-			-send packet: 
-			
+			-two cases: 
+				1-sending an RIP packet
+					make an IP packet
+				2-sending an IP packet
+					make an IP packet
 	*recvfrom() packets from UDP sockets
 		-if it's an RIP packet, update routing table.
 			update_routing_table()

@@ -36,8 +36,9 @@
 //interface_t *interface_listhead;
 
 int interface_count = 0, maxfd;
-list_t  *interfaces;
+list_t  *interfaces, *routes;
 fd_set masterfds;
+node_t *curr;
 
 int main ( int argc, char *argv[] )
 {
@@ -63,11 +64,18 @@ int main ( int argc, char *argv[] )
 	}
 
 
-	//only_entry = local_routing_setup(only_interface);
+	//send hello to every interface	
+	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
+		rip_packet *hello = (rip_packet *) malloc(sizeof(rip_packet));
+		hello->command=htons(REQUEST);
+		hello->num_entries=htons((uint16_t)0);
+
+		prepare_ip_packet(interface->sourcevip);
+		send_packet();
+	}
 
 	char command[CMDBUFSIZE];
 	int command_bytes;
-
 	while(1){
 		readfds = masterfds;
 		tvcopy = tv;
@@ -75,8 +83,6 @@ int main ( int argc, char *argv[] )
 			perror("select()");
 			exit(1);
 		}
-
-		printf("select() released\n");
 
 		if(FD_ISSET(0, &readfds)){
 			memset(command,0,CMDBUFSIZE);
@@ -104,7 +110,6 @@ int main ( int argc, char *argv[] )
 
 	printf("safe exiting\n");
 
-	node_t *curr;
 	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
 		interface_t *i = (interface_t *)curr->data;
 		close(i->sockfd);
@@ -113,7 +118,7 @@ int main ( int argc, char *argv[] )
 
 	list_free(&interfaces);
 	return EXIT_SUCCESS;
-}				/* ----------  end of function main  ---------- */
+}
 
 
 
