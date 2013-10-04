@@ -67,11 +67,11 @@ typedef struct {
 
 
 //Function forward declarations
-int get_socket (uint16_t portnum, struct addrinfo *source, int type, int local);
+int get_socket (uint16_t portnum, struct addrinfo **source, int type, int local);
 void print_interfaces();
 void print_routes();
 int setup_interface(char *filename);
-int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local);
+int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
 
 /* 
  * ===  FUNCTION  ======================================================================
@@ -128,11 +128,11 @@ int main ( int argc, char *argv[] )
 			command[command_bytes] = '\0';
 
 			if(strcmp("routes", command) || strcmp("r",command)){
-				print_routes();
+				//print_routes();
 			}
 			
 			if(strcmp("interfaces", command) || strcmp("i", command)){
-				print_interfaces();
+				//print_interfaces();
 			}
 		}
 
@@ -142,8 +142,35 @@ int main ( int argc, char *argv[] )
 }				/* ----------  end of function main  ---------- */
 
 
+int setup_interface(char *filename) {
+	
+	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
+	ref = parse_links(filename);
+	node_t *curr;
+	int i = 1;
+	int sockfd;
+	struct addrinfo *srcaddr, *destaddr;
+	
+	for (curr = ref->head; curr != NULL; curr = curr->next) {
+		
+        link_t *sing = (link_t *)curr->data;
+        interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
+        inf->id 	= ++interface_count;
+        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM, 1);
+        inf->sourceaddr = srcaddr->ai_addr;
+		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
+		inf->destaddr = destaddr->ai_addr;
+        inf->sourcevip	= sing->local_virt_ip.s_addr;
+        inf->destvip	= sing->remote_virt_ip.s_addr;
+        inf->status 	= UP;
+				
+	}
+	
+		
+}
 
-int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local) {
+
+int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
 	
 	int status;
 	struct addrinfo hints;
@@ -155,7 +182,9 @@ int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local) {
 	if (local == 1) {
 		hints.ai_flags = AI_PASSIVE;
 	}
-	if ((status = getaddrinfo(NULL, (char *)&portnum, &hints, &addr)) != 0) {
+	char port[32];
+	sprintf(port, "%u", portnum);
+	if ((status = getaddrinfo(NULL, port, &hints, addr)) != 0) {
 		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
 		return -1;
 	}
@@ -163,51 +192,7 @@ int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local) {
 }
 
 
-int setup_interface(char *filename) {
-	
-	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
-	ref = parse_links(filename);
-	node_t *curr;
-	int i = 1;
-	int sockfd;
-	struct addrinfo srcaddr, destaddr;
-	
-	for (curr = ref->head; curr != NULL; curr = curr->next) {
-		
-        link_t *sing = (link_t *)curr->data;
-        interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-        inf->id 	= ++interface_count;
-        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1, 1);
-        inf->sourceaddr = srcaddr.ai_addr;
-		get_addr(sing->remote_phys_port, &destaddr, 0, 0);
-		inf->destaddr = destaddr.ai_addr;
-        inf->sourcevip	= sing->local_virt_ip;
-        inf->destaddr	= sing->remote_virt_ip;
-        inf->status 	= UP;
-
-	}
-		
-}
-
-
-void print_interfaces () 
-{
-}		/* -----  end of function print_interface  ----- */
-
-
-void print_routes () 
-{
-}		/* -----  end of function print_routes  ----- */
-
-
-
-/* 
- * ===  FUNCTION  ======================================================================
- *         Name:  get_socket
- *  Description:  
- * =====================================================================================
- */
-int get_socket (uint16_t portnum, struct addrinfo *source, int type, int local)
+int get_socket (uint16_t portnum, struct addrinfo **source, int type, int local)
 {
 	struct addrinfo *p;
 	int sockfd, yes = 1;
@@ -216,8 +201,8 @@ int get_socket (uint16_t portnum, struct addrinfo *source, int type, int local)
 		printf("get_addr()\n");
 		exit(1);
 	}
- 
-	for(p = source; p!=NULL; p=p->ai_next){
+	
+	for(p = *source; p!=NULL; p=p->ai_next){
 		if((sockfd= socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
 			perror("socket()");
 			continue;
