@@ -33,11 +33,12 @@
 
 #define RECVBUFSIZE 	65536
 #define LOCALDELIVERY 	1
-#define FORWARD 		0
-#define UP 				1
-#define DOWN 			0
+#define FORWARD 	0
+#define UP 		1
+#define DOWN 		0
+#define CMDBUFSIZE 	1024
 
-#define CMDBUFSIZE 		1024
+
 int interface_count = 	0;
 list_t *ref;
 struct interface_t *only_interface;
@@ -48,8 +49,8 @@ int parse_lxnFile(char *filename);
 typedef struct{
 	int id;
 	int sockfd;
-	struct sockaddr sourceaddr;
-	struct sockaddr destaddr;
+	struct sockaddr *sourceaddr;
+	struct sockaddr *destaddr;
 	uint32_t sourcevip;
 	uint32_t destvip;
 	bool status;
@@ -64,62 +65,13 @@ typedef struct {
 	bool local;
 }rtu_routing_entry;
 
-void print_interfaces () 
-{
 
-
-
-}		/* -----  end of function print_interface  ----- */
-
-
-void print_routes () 
-{
-
-
-}		/* -----  end of function print_routes  ----- */
-
-
-
-/* 
- * ===  FUNCTION  ======================================================================
- *         Name:  get_socket
- *  Description:  
- * =====================================================================================
- */
-int get_socket (int port, struct addrinfo *source, int type, int local)
-{
-	struct addrinfo *p;
-	int sockfd, yes = 1;
-
-	if(get_addr(port, source, type, local) == -1){
-		printf("get_addr()\n");
-		exit(1);
-	}
- 
-	for(p = source; p!=NULL; p=p->ai_next){
-		if((sockfd= socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-			perror("socket()");
-			continue;
-		}
-		if(bind(sockfd, p->ai_addr, p->ai_addrlen) != 0){
-			perror("bind()");
-			close(sockfd);
-			continue;
-		}
-
-		if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
-			perror("setsockopt()");
-			exit(1);
-		}
-		break;
-	}
-
-	return sockfd;
-}		/* -----  end of function get_socket  ----- */
-
-
-
-
+//Function forward declarations
+int get_socket (uint16_t portnum, struct addrinfo *source, int type, int local);
+void print_interfaces();
+void print_routes();
+int setup_interface(char *filename);
+int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local);
 
 /* 
  * ===  FUNCTION  ======================================================================
@@ -129,7 +81,6 @@ int get_socket (int port, struct addrinfo *source, int type, int local)
  */
 int main ( int argc, char *argv[] )
 {
-		
 
 	if(argc < 1){
 		printf("usage: node lnxfilename\n");
@@ -142,8 +93,8 @@ int main ( int argc, char *argv[] )
 		exit(1);
 	}
 
-	only_entry = local_routing_setup(only_interface);
-
+	//only_entry = local_routing_setup(only_interface);
+	int maxfd;
 	//<-WARNING->Intentionally did not set up FD for the socket: not necessary at this point
 	fd_set readfds;
 	fd_set masterfds;
@@ -159,14 +110,14 @@ int main ( int argc, char *argv[] )
 	int command_bytes;
 	while(1){
 		readfds = masterfds;
-		tvcop = tv;
-		if(select(maxfd+1, &readfds, NULL, NULL, &tvcop) == -1){
+		tvcopy = tv;
+		if(select(maxfd+1, &readfds, NULL, NULL, &tvcopy) == -1){
 			perror("select()");
 			exit(1);
 		}
 
 		printf("select() released\n");
-		if(FD_ISSET(0)){
+		if(FD_ISSET(0, &readfds)){
 			command_bytes = read(0, command, CMDBUFSIZE);
 
 			if(command_bytes == -1){
@@ -187,15 +138,12 @@ int main ( int argc, char *argv[] )
 
 	}
 
-
-	
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */
 
 
 
-int get_addr(int portnum, struct addrinfo *addr, int type) {
-	
+int get_addr(uint16_t portnum, struct addrinfo *addr, int type, int local) {
 	
 	int status;
 	struct addrinfo hints;
@@ -207,17 +155,15 @@ int get_addr(int portnum, struct addrinfo *addr, int type) {
 	if (local == 1) {
 		hints.ai_flags = AI_PASSIVE;
 	}
-	
-	if ((status = getaddrinfo(NULL, portnum, &hints, &addr)) != 0) {
+	if ((status = getaddrinfo(NULL, (char *)&portnum, &hints, &addr)) != 0) {
 		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
 		return -1;
 	}
-	
 	return 1;
 }
 
 
-int parse_lxnFile(char *filename) {
+int setup_interface(char *filename) {
 	
 	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
 	ref = parse_links(filename);
@@ -230,40 +176,66 @@ int parse_lxnFile(char *filename) {
 		
         link_t *sing = (link_t *)curr->data;
         interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-        inf->id 		= ++interface_count;
-        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1);
-        inf->sourceaddr = srcaddr->ai_addr;
-        get_addr(sing->remote_phys_port, &destaddr, 0);
+        inf->id 	= ++interface_count;
+        inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, 1, 1);
+        inf->sourceaddr = srcaddr.ai_addr;
+		get_addr(sing->remote_phys_port, &destaddr, 0, 0);
+		inf->destaddr = destaddr.ai_addr;
         inf->sourcevip	= sing->local_virt_ip;
         inf->destaddr	= sing->remote_virt_ip;
         inf->status 	= UP;
-       
+
 	}
 		
 }
 
 
+void print_interfaces () 
+{
+}		/* -----  end of function print_interface  ----- */
+
+
+void print_routes () 
+{
+}		/* -----  end of function print_routes  ----- */
 
 
 
+/* 
+ * ===  FUNCTION  ======================================================================
+ *         Name:  get_socket
+ *  Description:  
+ * =====================================================================================
+ */
+int get_socket (uint16_t portnum, struct addrinfo *source, int type, int local)
+{
+	struct addrinfo *p;
+	int sockfd, yes = 1;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	if(get_addr(portnum, source, type, local) == -1){
+		printf("get_addr()\n");
+		exit(1);
+	}
+ 
+	for(p = source; p!=NULL; p=p->ai_next){
+		if((sockfd= socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
+			perror("socket()");
+			continue;
+		}
+		if(bind(sockfd, p->ai_addr, p->ai_addrlen) != 0){
+			perror("bind()");
+			close(sockfd);
+			continue;
+		}
+		if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
+			perror("setsockopt()");
+			exit(1);
+		}
+		break;
+	}
+	
+	return sockfd;
+}	/* -----  end of function get_socket  ----- */
 
 
 
