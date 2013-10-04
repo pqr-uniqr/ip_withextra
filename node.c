@@ -106,8 +106,11 @@ int main ( int argc, char *argv[] )
 
 	node_t *curr;
 	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
-		free(curr->data);
-	}	
+		interface_t *i = (interface_t *)curr->data;
+		close(i->sockfd);
+		free(i);
+	}
+
 	list_free(&interfaces);
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */
