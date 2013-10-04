@@ -1,4 +1,14 @@
-
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <errno.h>
+#include <stdbool.h>
 
 
 #define RECVBUFSIZE 	65536
@@ -16,7 +26,9 @@ void print_interfaces();
 void print_routes();
 int setup_interface(char *filename);
 
-typedef struct{
+typedef struct interface_t interface_t;
+
+struct interface_t{
 	int id;
 	int sockfd;
 	struct sockaddr *sourceaddr;
@@ -24,7 +36,7 @@ typedef struct{
 	uint32_t sourcevip;
 	uint32_t destvip;
 	bool status;
-}interface_t;
+};
 
 typedef struct {
 	uint32_t cost;

@@ -18,12 +18,15 @@
 
 $Definitions
 	*global variable
+		interface_listhead: global variable that stores the list of interfaces
+		interface count: global int that counts intefaces. also give interfaces ids.
+		link_t links: 
 	*structs
 		#struct interface_t{
 			int id;
 			int sockfd;
-			sockaddr sourceaddr;
-			sockaddr destaddr;
+			struct sockaddr *sourceaddr;
+			struct sockaddr *destaddr;
 			uint32_t sourcevip;
 			uint32_t destvip;
 			bool status;
@@ -44,7 +47,7 @@ $Definitions
 			struct *rtu_routing_entry first_route;
 			
 		}
-	*funtions
+	*functions
 		int setup_interface(char *filename)
 			-if returns -1, error parsing
 			*make the ids
@@ -52,11 +55,11 @@ $Definitions
 			*set up the sockets
 			*store the vips
 
-		int get_socket(char *portnum, struct addrinfo *source, int type)
+		#int get_socket(char *portnum, struct addrinfo *source, int type)
 			*returns sockfd
 			*use getaddrinfo on both local and remote ports
 
-		int get_addr(char * portnum, struct sockaddr *addr, int type, int local)
+		#int get_addr(char * portnum, struct sockaddr *addr, int type, int local)
 
 		rtu_routing_entry *local_routing_setup(struct interface_t *interface)
 			-this function takes in an interface struct and gives back
@@ -65,6 +68,7 @@ $Definitions
 			worry about the hashtable.
 
 		print_interface()
+			
 
 		print_routes()
 
@@ -89,3 +93,4 @@ $Event Loop
 
 
 $Exit
+	free interface_t list
