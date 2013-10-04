@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include "csupport/colordefs.h"
+#include "node.h"
 
 #define RECVBUFSIZE 	65536
 #define CMDBUFSIZE 	1024
@@ -46,13 +47,6 @@ int interface_count = 0;
 list_t *links;
 
 //Function forward declarations
-int get_socket (uint16_t portnum, struct addrinfo **source, int type);
-int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
-void print_interfaces();
-void print_routes();
-int setup_interface(char *filename);
-
-
 
 int main ( int argc, char *argv[] )
 {
@@ -192,11 +186,13 @@ int get_socket (uint16_t portnum, struct addrinfo **source, int type)
 			perror("socket()");
 			continue;
 		}
+
 		if(bind(sockfd, p->ai_addr, p->ai_addrlen) != 0){
 			perror("bind()");
 			close(sockfd);
 			continue;
 		}
+
 		if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1){
 			perror("setsockopt()");
 			exit(1);
