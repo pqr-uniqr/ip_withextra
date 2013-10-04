@@ -3,7 +3,7 @@
  *
  *       Filename:  pseudo_1node.c
  *
- *    Description:  pseudocode to get 1 node up and running 
+ *    Description:  pseudocode to get 1 node up and running, with active interfaces
  *
  *        Version:  1.0
  *        Created:  10/03/2013 05:16:28 PM
@@ -27,8 +27,11 @@ $Definitions
 			int sockfd;
 			struct sockaddr *sourceaddr;
 			struct sockaddr *destaddr;
+
+			//<-QUESTION->inet_ntop, inet_ntoa, for some reason byte order gets MIXED UP
 			uint32_t sourcevip;
 			uint32_t destvip;
+
 			bool status;
 		}
 
@@ -88,7 +91,7 @@ $Event Loop
 	*read() commands
 		*trivial cases
 		*"interfaces, routes"
-			print_interface()
+			#print_interface()
 			print_route()
 
 

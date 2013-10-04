@@ -35,9 +35,9 @@
 //rtu_routing_entry *interface_listhead;
 //interface_t *interface_listhead;
 
-int interface_count = 0;
-list_t *links;
-list_t *interfaces;
+int interface_count = 0, maxfd;
+list_t  *interfaces;
+fd_set masterfds;
 
 int main ( int argc, char *argv[] )
 {
@@ -48,6 +48,15 @@ int main ( int argc, char *argv[] )
 	}
 
 
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	FD_ZERO(&masterfds);
+	FD_SET(0, &masterfds);
+	struct timeval tv, tvcopy;
+	tv.tv_sec = 1;
+	tv.tv_usec = 0;
+	maxfd = 2;
+
 	if(setup_interface(argv[1]) == -1){
 		printf("setup_interface() went wrong\n");
 		exit(1);
@@ -55,18 +64,6 @@ int main ( int argc, char *argv[] )
 
 
 	//only_entry = local_routing_setup(only_interface);
-	int maxfd;
-
-	//<-WARNING->Intentionally did not set up FD for the socket: not necessary at this point
-	fd_set readfds;
-	fd_set masterfds;
-	FD_ZERO(&masterfds);
-	FD_ZERO(&readfds);
-	FD_SET(0, &masterfds);
-	struct timeval tv, tvcopy;
-	tv.tv_sec = 1;
-	tv.tv_usec = 0;
-	maxfd = 2;
 
 	char command[CMDBUFSIZE];
 	int command_bytes;
@@ -78,6 +75,8 @@ int main ( int argc, char *argv[] )
 			perror("select()");
 			exit(1);
 		}
+
+		printf("select() released\n");
 
 		if(FD_ISSET(0, &readfds)){
 			memset(command,0,CMDBUFSIZE);
@@ -103,6 +102,13 @@ int main ( int argc, char *argv[] )
 
 	}
 
+	printf("safe exiting\n");
+
+	node_t *curr;
+	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
+		free(curr->data);
+	}	
+	list_free(&interfaces);
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */
 
@@ -111,7 +117,7 @@ int main ( int argc, char *argv[] )
 int setup_interface(char *filename) {
 
 	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
-	links = parse_links(filename);
+	list_t *links = parse_links(filename);
 	node_t *curr;
 	struct addrinfo *srcaddr, *destaddr;
 	list_init(&interfaces);
@@ -122,19 +128,30 @@ int setup_interface(char *filename) {
 		link_t *sing = (link_t *)curr->data;
         	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
         	inf->id 	= ++interface_count;
-
         	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
-        	inf->sourceaddr = srcaddr->ai_addr;
+		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
 
-        	get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
-		inf->destaddr = destaddr->ai_addr;
+		//inf->destaddr = destaddr->ai_addr;
 
-		inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
+		memcpy(&inf->destaddr, &destaddr->ai_addr, sizeof(void *));
+		freeaddrinfo(destaddr);
+
+		//inf->sourceaddr = srcaddr->ai_addr;
+		memcpy(&inf->sourceaddr, &srcaddr->ai_addr, sizeof(void *));
+		freeaddrinfo(srcaddr);
+
+        	inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
         	inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
         	inf->status 	= UP;
 
 		list_append(interfaces, inf);
+		//select() stuff
+		FD_SET(inf->sockfd, &masterfds);
+		maxfd = inf->sockfd;
+
 	}
+
+	free_links(links);
 	
 	return 0;
 }
@@ -169,6 +186,11 @@ int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
 		}
 		break;
 	}
+
+	if(p==NULL){
+		printf("socket set up failed\n");
+		exit(1);
+	}
 	
 	return sockfd;
 }	/* -----  end of function get_socket  ----- */
@@ -193,7 +215,7 @@ int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
 		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
 		return -1;
 	}
-	
+
 	return 1;
 }
 
