@@ -9,7 +9,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdbool.h>
-
+#include "csupport/parselinks.h"
 
 #define RECVBUFSIZE 	65536
 #define CMDBUFSIZE 	1024
@@ -22,14 +22,14 @@
 
 #define REQUEST 	1
 
-int get_socket (uint16_t portnum, struct addrinfo **source, int type);
-int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
-void print_interfaces();
-void print_routes();
-int setup_interface(char *filename);
+#define IPHDRSIZE sizeof(struct iphdr)
 
+#define IP 0
+#define RIP 200
 
 typedef struct interface_t interface_t;
+typedef struct interface_t 			interface_t;
+typedef struct rtu_routing_entry 	rtu_routing_entry;
 
 struct interface_t{
 	int id;
@@ -41,12 +41,12 @@ struct interface_t{
 	bool status;
 };
 
-typedef struct {
+struct rtu_routing_entry {
 	uint32_t cost;
 	uint32_t addr;
 	uint32_t nexthop;
 	bool local;
-}rtu_routing_entry;
+};
 
 typedef struct {
 	uint32_t cost;
@@ -58,4 +58,18 @@ typedef struct {
 	uint16_t num_entries;
 	routing_entry entries[];
 } rip_packet;
+
+int get_socket (uint16_t portnum, struct addrinfo **source, int type);
+int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
+void print_interfaces();
+void print_routes();
+int setup_interface(char *filename);
+int init_routing_table();
+
+interface_t *get_nexthop(uint32_t dest_vip);
+int request_routing_info(interface_t *port);
+int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet);
+int send_ip(interface_t *inf, char *packet, int packetsize);
+int id_ip_packet(char *packet, struct iphdr **ipheader);
+
 

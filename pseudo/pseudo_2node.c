@@ -17,6 +17,14 @@
  */
 
 
+
+<-TODO->
+*observe MTU of 1400
+*where to ntoh
+
+
+
+
 $DEFINITIONS
 	Global Variables
 		#list_t *interfaces
@@ -53,44 +61,119 @@ $DEFINITIONS
 			-gets the address of both "local" ports and "remote" ports.
 			-"remote" addresses are stored inside interface and used for 
 			sending packets later
-		*send_request(interface_t *dest)
-			*malloc a request RIP packet
-			*send_packet()
-		*prepare_ip_packet(vip,proto,string)
-			*look up interface to send to on routing table
-		*send_packet(interface, data, protocol)
-
+		#int init_routing_table();
 		#void print_interfaces()
 		#void print_routes()
+		#int request_routing_info(interface_t *port)
+		#int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, char **packet)
+		#int send_ip(interface_t *inf, char *packet, int packetsize)
+		#id_ip_packet(char *buf, struct iphdr **ipheader)
+		*get_nexthop
 
 $SETUP
 	#setup file descriptor sets(readfds and masterfds)
 	#setup interfaces
-	*set up routing table with own interfaces
-		*init_routin_table: make a list_t filled with all the interfaces
-	*send out RIP request packet to own interfaces
-		*craft the RIP request packet
-		*enclose the RIP packet inside the IP packet
-		*send it to every interface
+	#set up routing table with own interfaces
+		#init_routin_table: make a list_t filled with all the interfaces
+	#send out RIP request packet to own interfaces
+		#craft the RIP request packet -> request_routing_info()
+		#enclose the RIP packet inside the IP packet ->encapsulate_inip()
+		#send it to every interface -> send_ip()
 
 $EVENT LOOP
 	*select()
 	*read commands FD_ISSET(0, &readfds)
 		#"interfaces"
-		*"routes"
-		*"send vip() proto(hardcoded to IP 0) string"
-			-two cases: 
-				1-sending an RIP packet
-					make an IP packet
-				2-sending an IP packet
-					make an IP packet
+		#"routes"
+		*"send vip() proto(always plain IP) string"
+			*get_nexthop()
+			*encapsulate_inip()
+			*send_ip()
 	*recvfrom() packets from UDP sockets
-		-if it's an RIP packet, update routing table.
-			update_routing_table()
-		-if we already have the entry for this guy in the routing table, continue
-			
-		-if we don't have the guy in the routing table, respond with your own routing table
-			!including your own interfaces
+		#if local delivery
+			#if RIP
+				*update routing table
+				*if it's a new guy, respond with your own routing table
+			#if IP
+				*print out payload
+		#if to be forwarded
+			*get_nexthop()
+			*send_ip()
 $EXIT
 	free interface_t list
 	close sockets
+
+
+
+
+
+
+[Design for sending of IP, RIP and higher protocol packages]
+Cases to design for
+	1. RIP to everyone
+		make the RIP packet
+		encapsulate it in an IP packet
+		send it to an interface
+		*request_routing_info(interface_t *port)
+			*encapsulate_inip()
+			*send_ip()
+	2. RIP to specific node
+		make the RIP packet
+		encapsulate it in an IP packet
+		send it to an interface
+		*respond_routing_info(interface_t *port)
+			*encapsulate_inip()
+			*send_ip()
+	3. Plain IP to specific node
+		get the data
+		consult routing table
+		encapsulate it in an IP packet
+		send the IP packet to an interface
+		*interface_t *get_nexthop(uint32_t dest_vip): takes in VIP of the final destination, returns the interface
+			of the next hop
+		*encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, int protocol)
+		*send_ip()
+	4. Relaying packet
+		look at the IP header
+		if for our interface, decapsulate
+		if not for our interface, get nexthop() and send to the interface()
+	5. Fragmentation
+		if there is MTU difference
+			get nexthop
+			encapsulate_inip(): 
+			send_ip()
+	6. Other Higher level protocols (TCP)
+		get the data
+
+Information required to craft and send a packet
+	1. Departing interface
+		two ways to get this info
+		1. consult the routing table
+		2. send it to everyone (already know)
+	2. The packet contents
+		1. protocol: 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
