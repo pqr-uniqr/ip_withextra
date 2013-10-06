@@ -9,6 +9,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdbool.h>
+#include "csupport/uthash.h"
 
 #define RECVBUFSIZE 	65536
 #define CMDBUFSIZE 	1024
@@ -18,16 +19,13 @@
 
 #define UP 		1
 #define DOWN 		0
-
-int get_socket (uint16_t portnum, struct addrinfo **source, int type);
-int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
-void print_interfaces();
-void print_routes();
-int setup_interface(char *filename);
-int init_routing_table();
+#define OWN_COST	0
 
 typedef struct interface_t 			interface_t;
 typedef struct rtu_routing_entry 	rtu_routing_entry;
+//typedef struct routing_table		routing_table;
+//typedef struct routing_table*		routing_table_t;
+//typedef struct rtu_routing_entry*	routing_entry_t;
 
 struct interface_t{
 	int id;
@@ -40,9 +38,23 @@ struct interface_t{
 };
 
 struct rtu_routing_entry {
-	uint32_t cost;
+	
 	uint32_t addr;
+	uint32_t cost;
 	uint32_t nexthop;
-	bool local;
+	int local;
+	
+	UT_hash_handle hh;
 };
+
+
+int get_socket (uint16_t portnum, struct addrinfo **source, int type);
+int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
+void print_interfaces();
+void print_routes();
+int setup_interface(char *filename);
+int init_routing_table();
+int route_table_add();
+rtu_routing_entry *find_route_entry(uint32_t id);
+
 
