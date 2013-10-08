@@ -42,6 +42,85 @@ int main ( int argc, char *argv[] )
 	tv.tv_usec = 0;
 	maxfd = 2;
 
+
+	//temporary static routing table
+	list_init(&routes);
+	rtu_routing_entry *a = malloc(sizeof(rtu_routing_entry));
+	rtu_routing_entry *b = malloc(sizeof(rtu_routing_entry));
+	rtu_routing_entry *c = malloc(sizeof(rtu_routing_entry));
+	
+	list_append(routes, a);
+	list_append(routes, b);
+	list_append(routes, c);
+
+	//static routing table for A, B, C
+	struct in_addr a_vip, c_vip, ab_vip, cb_vip;
+	inet_pton(AF_INET, "10.10.168.73", &a_vip);
+	inet_pton(AF_INET, "10.86.3.46", &c_vip);
+	inet_pton(AF_INET, "10.116.89.157", &ab_vip);
+	inet_pton(AF_INET, "10.213.182.148", &cb_vip);
+
+
+	if(!strcmp(argv[1],"lnx/A.lnx")){
+		printf("A\n");
+		a->addr = a_vip.s_addr;
+		a->cost = 0;
+		a->nexthop = a_vip.s_addr;
+		a->local = 1;
+		
+		b->addr = ab_vip.s_addr;
+		printf("a to b addr: %lu\n", (long unsigned int)ab_vip.s_addr);
+		b->cost = 1;
+		b->nexthop = ab_vip.s_addr;
+		b->local = 0;
+
+		c->addr = c_vip.s_addr;
+		c->cost = 2;
+		c->nexthop = ab_vip.s_addr;
+		c->local = 0;
+	} else if(!strcmp(argv[1], "lnx/B.lnx")){
+		printf("B\n");
+		rtu_routing_entry *bc = malloc(sizeof(rtu_routing_entry));
+		list_append(routes, bc);
+
+		a->addr = a_vip.s_addr;
+		a->cost = 1;
+		a->nexthop = a_vip.s_addr;
+		a->local = 0;
+		
+		b->addr = ab_vip.s_addr;
+		b->cost = 0;
+		b->nexthop = ab_vip.s_addr;
+		b->local = 1;
+
+		c->addr = c_vip.s_addr;
+		c->cost = 1;
+		c->nexthop = c_vip.s_addr;
+		c->local = 0;
+
+		bc->addr = cb_vip.s_addr;
+		bc->cost = 0;
+		bc->nexthop = cb_vip.s_addr;
+		bc->local = 1;
+	} else{
+		printf("C\n");
+		a->addr = a_vip.s_addr;
+		a->cost = 2;
+		a->nexthop = cb_vip.s_addr;
+		a->local = 0;
+		
+		b->addr = cb_vip.s_addr;
+		b->cost = 1;
+		b->nexthop = cb_vip.s_addr;
+		b->local = 0;
+
+		c->addr = c_vip.s_addr;
+		c->cost = 0;
+		c->nexthop = c_vip.s_addr;
+		c->local = 1;
+	}
+
+
 	if(setup_interface(argv[1]) == -1){
 		printf(_RED_"ERROR : setup_interface failed\n"_NORMAL_);
 		exit(1);
@@ -141,7 +220,8 @@ int main ( int argc, char *argv[] )
 					interface_t *inf;
 
 					memcpy(buf,recvbuf,received_bytes);
-					nexthop = routing_table_get_nexthop(ipheader->daddr); //temp
+					//nexthop = routing_table_get_nexthop(ipheader->daddr); //temp
+					nexthop = route_lookup(ipheader->daddr);
 					inf= inf_tosendto(nexthop); //temp
 					send_ip(inf,buf, received_bytes);
 				}
@@ -170,7 +250,8 @@ int main ( int argc, char *argv[] )
 
 				token = strtok_r(NULL,delim, &data);
 				inet_pton(AF_INET, token, &destaddr);
-				nexthop = routing_table_get_nexthop(destaddr.s_addr); //temp
+				//nexthop = routing_table_get_nexthop(destaddr.s_addr); //temp
+				nexthop=route_lookup(destaddr.s_addr);
 				inf = inf_tosendto(nexthop); //temp
 			
 				token = strtok_r(NULL, delim, &data);
@@ -228,6 +309,20 @@ int main ( int argc, char *argv[] )
 	list_free(&routes);
 
 	return EXIT_SUCCESS;
+}
+
+
+	uint32_t
+route_lookup (uint32_t final_dest)
+{
+	node_t *curr;
+	for(curr=routes->head;curr!=NULL;curr=curr->next){
+		rtu_routing_entry *route = (rtu_routing_entry *)curr->data;
+		if(route->addr == final_dest){
+			return route->nexthop;
+		}
+	}
+	return -1;
 }
 
 int routing_table_send_request(interface_t *inf) {
