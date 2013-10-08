@@ -18,11 +18,10 @@ main ( int argc, char *argv[] )
 
 	command[command_bytes] = '\0';
 
-	crintf("%s\n", command);
+	char *token;
+	char *delim = " ";
+	token = strtok(command, delim);
+	printf("first token is %s",token);
 
-	if(strcmp(command, "hello")){
-		printf("hello detected\n");
-		exit(1);
-	}
 	return EXIT_SUCCESS;
 }				/* ----------  end of function main  ---------- */

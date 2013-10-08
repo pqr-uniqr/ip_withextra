@@ -21,8 +21,8 @@
 #define UP 		1
 #define DOWN 		0
 #define OWN_COST	0
-
 #define REQUEST 	1
+#define RESPONSE	2
 
 #define IPHDRSIZE sizeof(struct iphdr)
 
@@ -47,7 +47,6 @@ struct interface_t{
 };
 
 struct rtu_routing_entry {
-	
 	uint32_t addr;
 	uint32_t cost;
 	uint32_t nexthop;
@@ -56,39 +55,27 @@ struct rtu_routing_entry {
 	UT_hash_handle hh;
 };
 
-
-typedef struct {
-	uint32_t cost;
-	uint32_t addr;
-} routing_entry;
-
-typedef struct {
-	uint16_t command;
-	uint16_t num_entries;
-	routing_entry entries[];
-} rip_packet;
-
 int get_socket (uint16_t portnum, struct addrinfo **source, int type);
 int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
 
 void print_interfaces();
-void print_routes();
-
 int setup_interface(char *filename);
-
-int init_routing_table();
-int route_table_add_mani(uint32_t srcVip, uint32_t destVip, int cost, int local);
-rtu_routing_entry *find_route_entry(uint32_t destVip);
 
 //temporary function for looking up interfaces
 interface_t *inf_tosendto(uint32_t dest_vip);
 //send out RIP request packets to every local interfaces
-int request_routing_info(interface_t *port);
+
+int up_interface(int id);
+int down_interface(int id);
+
+
+//functions for making packets and sending them out
+int routing_table_send_request(interface_t *port);
+
 //take whatever info necessary and make an IP packet
 int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet);
 //take the packet and send to the specified interface
 int send_ip(interface_t *inf, char *packet, int packetsize);
 //deencapsulate packet and put it in a malloc-ed iphdr
 int id_ip_packet(char *packet, struct iphdr **ipheader);
-
 
