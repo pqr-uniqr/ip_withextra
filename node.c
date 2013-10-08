@@ -63,12 +63,12 @@ int main ( int argc, char *argv[] )
 		printf("setup_interface() went wrong\n");
 		exit(1);
 	}
-
+	
 	if (init_routing_table() == -1) {
 		printf(_RED_"ERROR : init_routing table\n");
 		exit(1);
 	} 
-
+		
 	//send hello to every interface	
 	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
 		request_routing_info((interface_t *)curr->data);
@@ -164,108 +164,119 @@ int main ( int argc, char *argv[] )
 }
 
 
-int
-request_routing_info (interface_t *inf)
+
+int init_routing_table() {
+	
+	routing_table = NULL;
+	node_t *curr;
+	int i = 0;
+	
+	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
+		
+		interface_t *inf = (interface_t *)curr->data;
+		if (route_table_add(inf->sourcevip, inf->destvip, 0, 1) == -1) {
+			printf("WARNING : Entry was NOT added to routing table!\n");
+			continue;
+		}
+	}
+	return 0;
+}
+
+int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
+	
+	rtu_routing_entry *new;
+	
+	HASH_FIND(hh, routing_table, &destVip, sizeof(uint32_t), new);
+	
+	if (new == NULL) {
+		new = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
+		if (new == NULL) {
+			printf("ERROR : Malloc new routing entry failed\n");
+			return -1;
+		}
+		new->addr = destVip;	
+		HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), new);
+	}
+	new->cost = cost;
+	new->nexthop = srcVip;
+	new->local = local;
+	
+	return 0;
+}
+
+rtu_routing_entry *find_route_entry(uint32_t destVip) {
+	
+	rtu_routing_entry *entry;
+	
+	HASH_FIND(hh, routing_table, &destVip, sizeof(uint32_t), entry);
+	if (entry == NULL) {
+		printf("COULD NOT FIND THE ENTRY\n");
+		return NULL;
+	}
+	printf("Found the route\n");
+	return entry;
+	
+}
+
+int setup_interface(char *filename) {
+
+	list_t *links = parse_links(filename);
+	node_t *curr;
+	struct addrinfo *srcaddr, *destaddr;
+	list_init(&interfaces);
+	
+	for (curr = links->head; curr != NULL; curr = curr->next) {
+		
+		link_t *sing = (link_t *)curr->data;
+
+       	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
+       	inf->id 	= ++interface_count;
+       	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
+		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
+		inf->destaddr = malloc(sizeof(struct sockaddr));
+		inf->sourceaddr = malloc(sizeof(struct sockaddr));
+		memcpy(inf->destaddr, destaddr->ai_addr, sizeof(struct sockaddr));
+		memcpy(inf->sourceaddr, srcaddr->ai_addr, sizeof(struct sockaddr));
+	
+		freeaddrinfo(destaddr);
+		freeaddrinfo(srcaddr);
+
+        inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
+        inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
+        inf->status 	= UP;
+
+		list_append(interfaces, inf);
+
+		FD_SET(inf->sockfd, &masterfds);
+		maxfd = inf->sockfd;
+
+	}
+	free_links(links);
+	return 0;
+}
+
+int request_routing_info (interface_t *inf)
 {
 	int packet_size = IPHDRSIZE + sizeof(rip_packet);
-	printf("request_routing_info\n");
-	//make rip request packet
 	rip_packet *request = (rip_packet *) malloc(sizeof(rip_packet));
 	request->command = REQUEST;
 	request->num_entries = (uint16_t)0;
 
 	char *packet = (char *)malloc(packet_size);
 	encapsulate_inip(inf->sourcevip, inf->destvip, (uint8_t)200, request, sizeof(rip_packet), &packet);
-
 	free(request);
 	send_ip(inf, packet, packet_size);
 	free(packet);
 	return 0;
-}		/* -----  end of function request_routing_info  ----- */
-
-//pack an ip header and its data
-int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet)
-{
-	struct iphdr *h=(struct iphdr *) malloc(IPHDRSIZE);
-	memset(h,0,IPHDRSIZE);
-
-	int packetsize = IPHDRSIZE + datasize;
-
-	//fill in the header with necessary information
-	h->version = 4;
-	h->ihl = 5;
-	h->tot_len = packetsize;
-	h->protocol = protocol;
-	h->saddr = src_vip;
-	h->daddr = dest_vip;
-
-	printf("%hd\n%hd\n", h->version, h->ihl);
-
-	//copy header and payload to the given char*
-	memcpy(*packet,h,IPHDRSIZE);
-	char *datapart = *packet + IPHDRSIZE;
-	memcpy(datapart, data, datasize);
-	int checksum = ip_sum(*packet, h->tot_len);
-	char *check = *packet + sizeof(uint8_t)*4 + sizeof(uint16_t)*3;
-	memcpy(check,&checksum,sizeof(uint16_t));
-	
-	printf("checksum %d\n", checksum);
-	free(h);
-	return packetsize;
-}		/* -----  end of function encapsulate_inip  ----- */
-
-int id_ip_packet (char *packet, struct iphdr **ipheader)
-{
-	char *p = packet;
-	struct iphdr *i = *ipheader;
-	memcpy(i, p, sizeof(uint8_t));
-	//p=p+sizeof(int);
-	//memcpy(i->version,p, sizeof(int));
-	p=p+sizeof(uint8_t)*2;
-	memcpy(&(i->tot_len), p, sizeof(uint16_t));
-	p=p+sizeof(uint16_t)*3+sizeof(uint8_t);
-	memcpy(&(i->protocol), p, sizeof(uint8_t));
-	p=p+sizeof(uint8_t); 
-	memcpy(&(i->check), p, sizeof(uint16_t));
-	memset(p,0,sizeof(uint16_t));
-	p=p+sizeof(uint16_t);
-	memcpy(&(i->saddr), p, sizeof(uint32_t));
-	p=p+sizeof(uint32_t);
-	memcpy(&(i->daddr), p, sizeof(uint32_t));
-	int checksum = ip_sum(packet,i->tot_len);
-
-	printf("old checksum: %d, new checksum: %d\n", i->check, checksum);
-
-	char src[INET_ADDRSTRLEN];
-	char dest[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, ((struct in_addr *)&(i->saddr)), src, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, ((struct in_addr *)&(i->daddr)), dest, INET_ADDRSTRLEN);
-	printf("\
-	version:%hd\n\
-	header length (in 4-byte words):%hd\n\
-	total length:%d\n\
-	protocol: %hd\n\
-	checksum?: %d\n\
-	source: %s\n\
-	destination: %s\n",i->version,i->ihl,i->tot_len,i->protocol,checksum==i->check,src,dest);
-
-
-	node_t *curr;
-	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
-		interface_t *inf=curr->data;
-		if(inf->sourcevip == i->daddr){
-			return LOCALDELIVERY;
-		}
-	}
-	return FORWARD;
-}		/* -----  end of function id_ip_packet  ----- */
+}
 
 int send_ip (interface_t *inf, char *packet, int packetsize)
 {
 	int bytes_sent;
-
+	printf("family: %d, data (right before sendto()): %s\n", ((struct sockaddr *)inf->destaddr)->sa_family, ((struct sockaddr *)inf->destaddr)->sa_data);
 	char tbs[packetsize];
 	memcpy(tbs, packet, packetsize);
+	
 	bytes_sent = sendto(inf->sockfd, tbs, packetsize, 0, inf->destaddr, sizeof(struct sockaddr));
 
 	if(bytes_sent == -1){
@@ -281,101 +292,6 @@ int send_ip (interface_t *inf, char *packet, int packetsize)
 
 	return 0;
 }		/* -----  end of function send_ip  ----- */
-
-
-int init_routing_table() {
-	
-	routing_table = NULL;
-	node_t *curr;
-	
-	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
-		
-		interface_t *inf = (interface_t *)curr->data;
-		if (route_table_add(inf->sourcevip, inf->sourcevip, 0, 1) == -1) {
-			printf("WARNING : Entry was NOT added to routing table!\n");
-			continue;
-		}
-	}
-	return 0;
-}
-
-int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
-	
-	rtu_routing_entry *new;
-	
-	HASH_FIND_INT(routing_table, &destVip, new);
-	
-	if (new == NULL) {
-		new = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
-		if (new == NULL) {
-			printf("ERROR : Malloc new routing entry failed\n");
-			return -1;
-		}
-		HASH_ADD_INT(routing_table, addr, new);
-	}
-	new->cost = cost;
-	new->nexthop = srcVip;
-	new->addr = destVip;
-	new->local = local;
-		
-	return 0;
-}
-
-rtu_routing_entry *find_route_entry(uint32_t id) {
-	
-	rtu_routing_entry *entry;
-	
-	HASH_FIND_INT(routing_table, &id, entry);
-	if (entry == NULL) {
-		printf("COULD NOT FIND THE ENTRY\n");
-		return NULL;
-	}
-	return entry;
-	
-}
-
-int setup_interface(char *filename) {
-
-	printf(_NORMAL_"Link file -> \"%s\"\n", filename);
-	list_t *links = parse_links(filename);
-	node_t *curr;
-	struct addrinfo *srcaddr, *destaddr;
-	list_init(&interfaces);
-	
-	for (curr = links->head; curr != NULL; curr = curr->next) {
-		
-		link_t *sing = (link_t *)curr->data;
-
-       	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-       	inf->id 	= ++interface_count;
-       	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
-		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
-
-		//printf("family: %d, data: %s\n", destaddr->ai_addr->sa_family, destaddr->ai_addr->sa_data);
-		memcpy(&inf->destaddr, &destaddr->ai_addr, sizeof(struct sockaddr *));
-		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->destaddr)->sa_family, ((struct sockaddr *)inf->destaddr)->sa_data);
-		freeaddrinfo(destaddr);
-		//printf("family: %d, data: %s\n", srcaddr->ai_addr->sa_family, srcaddr->ai_addr->sa_data);
-		memcpy(&inf->sourceaddr, &srcaddr->ai_addr, sizeof(struct sockaddr *));
-		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->sourceaddr)->sa_family, ((struct sockaddr *)inf->sourceaddr)->sa_data);
-
-		freeaddrinfo(srcaddr);
-
-        inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
-        inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
-        inf->status 	= UP;
-
-		list_append(interfaces, inf);
-
-		FD_SET(inf->sockfd, &masterfds);
-		maxfd = inf->sockfd;
-
-	}
-
-	free_links(links);
-	
-	return 0;
-}
 
 int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
 	
@@ -459,6 +375,7 @@ void print_interfaces ()
 void print_routes () 
 {
 	rtu_routing_entry *tmp;
+	rtu_routing_entry *info;
 	char src[INET_ADDRSTRLEN];
 	char nexthop[INET_ADDRSTRLEN];
 	
@@ -466,13 +383,87 @@ void print_routes ()
 	printf("\t  Address \t  Next Hop \tCost\tLocal\n");
 	printf("\t |-------------|------------ |--------|------|\n");
 	
-    for(tmp = routing_table; tmp != NULL; tmp = (rtu_routing_entry *)(tmp->hh.next)) {
-        inet_ntop(AF_INET, ((struct in_addr *)&(tmp->addr)), src, INET_ADDRSTRLEN);
-        inet_ntop(AF_INET, ((struct in_addr *)&(tmp->nexthop)), nexthop, INET_ADDRSTRLEN);
-        printf("\t %s\t%s\t%d\t%s\n",src, nexthop, tmp->cost, (tmp->local == 1) ? "YES" : "NO");
-    }
+	HASH_ITER(hh, routing_table, info, tmp) {
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(info->addr)), src, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, ((struct in_addr *)&(info->nexthop)), nexthop, INET_ADDRSTRLEN);
+		printf("\t %s\t%s\t%d\t%s\n",src, nexthop, info->cost, (info->local == 1) ? "YES" : "NO");
+		
+	}
+	
     printf(_NORMAL_);
-}		/* -----  end of function print_routes  ----- */
+}	
+
+int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet)
+{
+	struct iphdr *h=(struct iphdr *) malloc(IPHDRSIZE);
+	memset(h,0,IPHDRSIZE);
+
+	int packetsize = IPHDRSIZE + datasize;
+
+	h->version = 4;
+	h->ihl = 5;
+	h->tot_len = packetsize;
+	h->protocol = protocol;
+	h->saddr = src_vip;
+	h->daddr = dest_vip;
+
+	//printf("%hd\n%hd\n", h->version, h->ihl);
+
+	memcpy(*packet,h,IPHDRSIZE);
+	char *datapart = *packet + IPHDRSIZE;
+	memcpy(datapart, data, datasize);
+	int checksum = ip_sum(*packet, h->tot_len);
+	char *check = *packet + sizeof(uint8_t)*4 + sizeof(uint16_t)*3;
+	memcpy(check,&checksum,sizeof(uint16_t));
+	
+	//printf("checksum %d\n", checksum);
+	free(h);
+	return packetsize;
+}		/* -----  end of function encapsulate_inip  ----- */
+
+int id_ip_packet (char *packet, struct iphdr **ipheader)
+{
+	char *p = packet;
+	struct iphdr *i = *ipheader;
+	memcpy(i, p, sizeof(uint8_t));
+	//p=p+sizeof(int);
+	//memcpy(i->version,p, sizeof(int));
+	p=p+sizeof(uint8_t)*2;
+	memcpy(&(i->tot_len), p, sizeof(uint16_t));
+	p=p+sizeof(uint16_t)*3+sizeof(uint8_t);
+	memcpy(&(i->protocol), p, sizeof(uint8_t));
+	p=p+sizeof(uint8_t); 
+	memcpy(&(i->check), p, sizeof(uint16_t));
+	memset(p,0,sizeof(uint16_t));
+	p=p+sizeof(uint16_t);
+	memcpy(&(i->saddr), p, sizeof(uint32_t));
+	p=p+sizeof(uint32_t);
+	memcpy(&(i->daddr), p, sizeof(uint32_t));
+	int checksum = ip_sum(packet,i->tot_len);
+
+	printf("old checksum: %d, new checksum: %d\n", i->check, checksum);
+
+	char src[INET_ADDRSTRLEN];
+	char dest[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, ((struct in_addr *)&(i->saddr)), src, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, ((struct in_addr *)&(i->daddr)), dest, INET_ADDRSTRLEN);
+	printf("\
+	version:%hd\n\
+	header length (in 4-byte words):%hd\n\
+	total length:%d\n\
+	protocol: %hd\n\
+	checksum?: %d\n\
+	source: %s\n\
+	destination: %s\n",i->version,i->ihl,i->tot_len,i->protocol,checksum==i->check,src,dest);
 
 
-
+	node_t *curr;
+	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
+		interface_t *inf=curr->data;
+		if(inf->sourcevip == i->daddr){
+			return LOCALDELIVERY;
+		}
+	}
+	return FORWARD;
+}		/* -----  end of function id_ip_packet  ----- */
