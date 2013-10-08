@@ -40,8 +40,6 @@ int interface_count = 0, maxfd;
 list_t  *interfaces, *routes;
 fd_set masterfds;
 rtu_routing_entry *routing_table;
-node_t *curr;
-list_t *routes;
 
 int main ( int argc, char *argv[] )
 {
@@ -49,6 +47,7 @@ int main ( int argc, char *argv[] )
 		printf("usage: node lnxfilename\n");
 		exit(1);
 	}
+
 
 	fd_set readfds;
 	FD_ZERO(&readfds);
@@ -64,19 +63,24 @@ int main ( int argc, char *argv[] )
 		exit(1);
 	}
 
+	
 	if (init_routing_table() == -1) {
 		printf(_RED_"ERROR : init_routing table\n");
 		exit(1);
-	} 
+	}
 
 	//send hello to every interface	
+
+	node_t *curr;
 	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
 		request_routing_info((interface_t *)curr->data);
 	} 
 
-	char command[CMDBUFSIZE];
+	char readbuf[CMDBUFSIZE];
 	char recvbuf[RECVBUFSIZE];
-	int command_bytes;
+	char *token;
+	char *delim = " ";
+	int read_bytes;
 	int received_bytes;
 	struct sockaddr sender_addr;
 	socklen_t addrlen= sizeof sender_addr;
@@ -103,18 +107,28 @@ int main ( int argc, char *argv[] )
 				if(id_ip_packet(recvbuf,&ipheader) == LOCALDELIVERY){
 					printf("local delivery packet\n");
 					if(ipheader->protocol == RIP){
+
 						rip_packet rip;
 						char *rippart = recvbuf+IPHDRSIZE;
 						memcpy(&rip.command,rippart,sizeof(uint16_t));
 						rippart=rippart+sizeof(uint16_t);
 						memcpy(&rip.num_entries,rippart,sizeof(uint16_t));
+
 						if(rip.command == REQUEST){
 							printf("it's an rip request\n");
+							//we must respond with our table
+							//meaning that we should convert the table we have
+							//into a RIP packet
+							//anything else?
 						} else {
 							printf("it's an rip response\n");
+							//meaning that we should update our routing table
 						}
 					} else if (ipheader->protocol == IP){
-
+						//print it out(the payload)
+						recvbuf[received_bytes] = '\0';
+						char *payload = recvbuf+IPHDRSIZE;
+						printf("payload on packet says: %s\n", payload);
 					}
 				} else {
 					printf("packet to be forwarded\n");
@@ -122,20 +136,44 @@ int main ( int argc, char *argv[] )
 			}
 		}
 		if(FD_ISSET(0, &readfds)){
-			memset(command,0,CMDBUFSIZE);
-			command_bytes = read(0, command, CMDBUFSIZE);
-			if(command_bytes == -1){
+			memset(readbuf, 0,CMDBUFSIZE);
+			read_bytes = read(0, readbuf, CMDBUFSIZE);
+
+			if(read_bytes == -1){
 				perror("read");
 				exit(-1);
 			}
-			if(!strcmp("routes\n", command)){
+
+			token =strtok(readbuf, delim);
+
+			if(!strcmp("send", token)){
+				printf("send!\n");
+				//vip
+				strtok(readbuf,delim);
+				//protocol
+				strtok(readbuf, delim);
+				//string
+				strtok(readbuf, delim);
+			}
+
+			if(!strcmp("up",token)){
+				printf("up!\n");
+				strtok(readbuf, delim);
+			}
+
+			if(!strcmp("down",token)){
+				printf("down\n");
+				strtok(readbuf, delim);
+			}
+
+			if(!strcmp("routes\n", readbuf)){
 				print_routes();
 			}
-			if(!strcmp("interfaces\n", command)){
+			if(!strcmp("interfaces\n",readbuf)){
 				print_interfaces();
 			}
 
-			if(!strcmp("q\n", command)){
+			if(!strcmp("q\n", readbuf)){
 				break;
 			}
 			else { // temporary send test for routing find() function
@@ -270,7 +308,6 @@ id_ip_packet (char *packet, struct iphdr **ipheader)
 send_ip (interface_t *inf, char *packet, int packetsize)
 {
 	int bytes_sent;
-
 	char tbs[packetsize];
 	memcpy(tbs, packet, packetsize);
 	bytes_sent = sendto(inf->sockfd, tbs, packetsize, 0, inf->destaddr, sizeof(struct sockaddr));
@@ -297,9 +334,8 @@ int init_routing_table() {
 	node_t *curr;
 	
 	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
-		
 		interface_t *inf = (interface_t *)curr->data;
-		if (route_table_add(inf->sourcevip, inf->sourcevip, 0, 1) == -1) {
+		if (route_table_add(inf->sourcevip, inf->destvip, 0, 1) == -1) {
 			printf("WARNING : Entry was NOT added to routing table!\n");
 			continue;
 		}
@@ -308,23 +344,23 @@ int init_routing_table() {
 }
 
 int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
-	
+
 	rtu_routing_entry *new;
 	
 	HASH_FIND_INT(routing_table, &destVip, new);
-	
+
 	if (new == NULL) {
 		new = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
 		if (new == NULL) {
 			printf("ERROR : Malloc new routing entry failed\n");
 			return -1;
 		}
+		
 		HASH_ADD_INT(routing_table, addr, new);
 	}
 	new->cost = cost;
 	new->nexthop = srcVip;
 	new->addr = destVip;
-	new->local = local;
 		
 	return 0;
 }
@@ -355,13 +391,15 @@ int setup_interface(char *filename) {
 		
 		link_t *sing = (link_t *)curr->data;
 
-       	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-       	inf->id 	= ++interface_count;
-       	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
+	       	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
+	       	inf->id 	= ++interface_count;
+	       	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
 		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
 
 		//printf("family: %d, data: %s\n", destaddr->ai_addr->sa_family, destaddr->ai_addr->sa_data);
 		memcpy(&inf->destaddr, &destaddr->ai_addr, sizeof(struct sockaddr *));
+		printf("destaddr: %hu\n", inf->destaddr->sa_family);
+
 		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->destaddr)->sa_family, ((struct sockaddr *)inf->destaddr)->sa_data);
 		freeaddrinfo(destaddr);
 		//printf("family: %d, data: %s\n", srcaddr->ai_addr->sa_family, srcaddr->ai_addr->sa_data);
@@ -370,9 +408,9 @@ int setup_interface(char *filename) {
 
 		freeaddrinfo(srcaddr);
 
-        inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
-        inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
-        inf->status 	= UP;
+        	inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
+	        inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
+    		inf->status = UP;
 
 		list_append(interfaces, inf);
 

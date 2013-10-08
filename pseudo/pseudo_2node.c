@@ -21,8 +21,8 @@
 <-TODO->
 *observe MTU of 1400
 *where to ntoh
-
-
+*sizeof macros
+*how to deal with when there are too much data typed in
 
 
 $DEFINITIONS
@@ -69,6 +69,11 @@ $DEFINITIONS
 		#int send_ip(interface_t *inf, char *packet, int packetsize)
 		#id_ip_packet(char *buf, struct iphdr **ipheader)
 		*get_nexthop
+		*up_interface
+		*down_interface
+		*init_routing_table
+		*routing_table_add
+		*find_route_entry
 
 $SETUP
 	#setup file descriptor sets(readfds and masterfds)
