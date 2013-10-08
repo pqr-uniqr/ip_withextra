@@ -183,11 +183,8 @@ request_routing_info (interface_t *inf)
 	return 0;
 }		/* -----  end of function request_routing_info  ----- */
 
-
-
 //pack an ip header and its data
-	int
-encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet)
+int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet)
 {
 	struct iphdr *h=(struct iphdr *) malloc(IPHDRSIZE);
 	memset(h,0,IPHDRSIZE);
@@ -217,10 +214,7 @@ encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *d
 	return packetsize;
 }		/* -----  end of function encapsulate_inip  ----- */
 
-
-
-int
-id_ip_packet (char *packet, struct iphdr **ipheader)
+int id_ip_packet (char *packet, struct iphdr **ipheader)
 {
 	char *p = packet;
 	struct iphdr *i = *ipheader;
@@ -266,8 +260,7 @@ id_ip_packet (char *packet, struct iphdr **ipheader)
 	return FORWARD;
 }		/* -----  end of function id_ip_packet  ----- */
 
-	int
-send_ip (interface_t *inf, char *packet, int packetsize)
+int send_ip (interface_t *inf, char *packet, int packetsize)
 {
 	int bytes_sent;
 
@@ -288,7 +281,6 @@ send_ip (interface_t *inf, char *packet, int packetsize)
 
 	return 0;
 }		/* -----  end of function send_ip  ----- */
-
 
 
 int init_routing_table() {
@@ -328,7 +320,6 @@ int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
 		
 	return 0;
 }
-
 
 rtu_routing_entry *find_route_entry(uint32_t id) {
 	
@@ -385,8 +376,6 @@ int setup_interface(char *filename) {
 	
 	return 0;
 }
-
-
 
 int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
 	
