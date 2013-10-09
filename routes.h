@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define INFINITY 16
+
 typedef struct rip_entry 	rip_entry;
 typedef struct rip_packet 	rip_packet;
 

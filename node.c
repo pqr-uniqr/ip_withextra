@@ -115,7 +115,7 @@ int main ( int argc, char *argv[] )
 							//into a RIP packet
 							//anything else?
 							
-							//TODO give me the table
+							//TODO give me the table							
 							//then I'll do an encapsulate_inip()
 							//then send_ip()							
 							
@@ -141,7 +141,7 @@ int main ( int argc, char *argv[] )
 					interface_t *inf;
 
 					memcpy(buf,recvbuf,received_bytes);
-					nexthop = routing_table_get_nexthop(ipheader->daddr); //temp
+					nexthop = routing_table_get_nexthop(ipheader->daddr); 
 					inf= inf_tosendto(nexthop); //temp
 					send_ip(inf,buf, received_bytes);
 				}
@@ -203,9 +203,6 @@ int main ( int argc, char *argv[] )
 			if(!strcmp("q", readbuf)){
 				break;
 			}
-			else { // temporary send test for routing find() function
-				
-			}
 		}
 	}
 
@@ -230,6 +227,61 @@ int main ( int argc, char *argv[] )
 	return EXIT_SUCCESS;
 }
 
+int routing_table_update(rip_packet *table) {
+	
+	int i;
+	uint32_t addr, cost;
+	char from[INET_ADDRSTRLEN];
+	rtu_routing_entry *entry;
+	
+	for (i = 0; i < table->num_entries; i++) {
+		
+		addr = table->entries[i].addr;
+		cost = table->entries[i].cost;
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(addr)), from, INET_ADDRSTRLEN);
+		printf("Routing Entry Receieved with [Address : %s] [Cost : %d]\n", from, cost);
+		
+		HASH_FIND(hh, routing_table, &addr, sizeof(uint32_t), entry);
+		 
+		if (!entry) {
+			HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), entry);
+		}
+		else if (entry->cost < cost) {
+			entry->addr = addr;
+			entry->cost = cost;
+		}
+		else if (entry->cost > cost) {
+			entry->cost = INFINITY;
+		}	
+	}
+}
+
+int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
+
+	rtu_routing_entry *new;
+	char dest[INET_ADDRSTRLEN];
+	
+	HASH_FIND(hh, routing_table, &destVip, sizeof(uint32_t), new);
+	
+	if (new == NULL) {
+		new = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
+		if (new == NULL) {
+			printf("ERROR : Malloc new routing entry failed\n");
+			return -1;
+		}
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(srcVip)), dest, INET_ADDRSTRLEN);
+		printf(_MAGENTA_"\tFound new route to %s, cost=%d\n"_NORMAL_, dest, cost);
+		
+		new->addr = destVip;	
+		HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), new);
+	}
+	new->cost = cost;
+	new->nexthop = srcVip;
+	new->local = local;	
+	return 0;
+}
 int routing_table_send_request(interface_t *inf) {
 	
 	printf(_MAGENTA_"\tSending out requests to all our interfaces\n"_NORMAL_);
@@ -298,7 +350,6 @@ void routing_table_print_packet() {
 		printf("\tNext Hop %s Cost %d\n", dest, packet->entries[index].cost);
 		
 	}
-	
 }
 
 //temporary functions
@@ -442,7 +493,7 @@ int init_routing_table() {
 	printf(_MAGENTA_"\tUpdating routing table with own interfaces\n"_NORMAL_);
 	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
 		interface_t *inf = (interface_t *)curr->data;
-		if (route_table_add(inf->sourcevip, inf->destvip, 0, 1) == -1) {
+		if (route_table_add(inf->sourcevip, inf->sourcevip, 0, 1) == -1) {
 			printf("WARNING : Entry was NOT added to routing table!\n");
 			continue;
 		}
@@ -452,31 +503,6 @@ int init_routing_table() {
 
 
 
-int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
-
-	rtu_routing_entry *new;
-	char dest[INET_ADDRSTRLEN];
-	
-	HASH_FIND(hh, routing_table, &destVip, sizeof(uint32_t), new);
-	
-	if (new == NULL) {
-		new = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
-		if (new == NULL) {
-			printf("ERROR : Malloc new routing entry failed\n");
-			return -1;
-		}
-		
-		inet_ntop(AF_INET, ((struct in_addr *)&(srcVip)), dest, INET_ADDRSTRLEN);
-		printf(_MAGENTA_"\tFound new route to %s, cost=%d\n"_NORMAL_, dest, cost);
-		
-		new->addr = destVip;	
-		HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), new);
-	}
-	new->cost = cost;
-	new->nexthop = srcVip;
-	new->local = local;	
-	return 0;
-}
 
 rtu_routing_entry *find_route_entry(uint32_t destVip) {
 	
