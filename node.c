@@ -170,7 +170,8 @@ int main ( int argc, char *argv[] )
 
 				token = strtok_r(NULL,delim, &data);
 				inet_pton(AF_INET, token, &destaddr);
-				nexthop = routing_table_get_nexthop(destaddr.s_addr); //temp
+				//nexthop = routing_table_get_nexthop(destaddr.s_addr); //temp
+				nexthop=route_lookup(destaddr.s_addr);
 				inf = inf_tosendto(nexthop); //temp
 			
 				token = strtok_r(NULL, delim, &data);
@@ -227,6 +228,7 @@ int main ( int argc, char *argv[] )
 	return EXIT_SUCCESS;
 }
 
+
 int routing_table_update(rip_packet *table) {
 	
 	int i;
@@ -282,6 +284,20 @@ int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
 	new->local = local;	
 	return 0;
 }
+
+
+uint32_t route_lookup (uint32_t final_dest)
+{
+	node_t *curr;
+	for(curr=routes->head;curr!=NULL;curr=curr->next){
+		rtu_routing_entry *route = (rtu_routing_entry *)curr->data;
+		if(route->addr == final_dest){
+			return route->nexthop;
+		}
+	}
+	return -1;
+}
+
 int routing_table_send_request(interface_t *inf) {
 	
 	printf(_MAGENTA_"\tSending out requests to all our interfaces\n"_NORMAL_);
@@ -330,8 +346,7 @@ rip_packet *routing_table_send_response(uint32_t dest) {
 		packet->entries[index].addr = info->nexthop;
 		packet->entries[index++].cost = info->cost;
 		
-	}
-	
+	}	
 	return packet;
 }
 
@@ -380,7 +395,6 @@ interface_t * inf_tosendto (uint32_t dest_vip)
 }
 
 
-
 //pack an ip header and its data
 int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet)
 {
@@ -411,10 +425,8 @@ int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, voi
 	return packetsize;
 }
 
-
-
-int id_ip_packet (char *packet, struct iphdr **ipheader)
-{
+int id_ip_packet (char *packet, struct iphdr **ipheader) {
+	
 	char *p = packet;
 	struct iphdr *i = *ipheader;
 	memcpy(i, p, sizeof(uint8_t));
@@ -459,7 +471,6 @@ int id_ip_packet (char *packet, struct iphdr **ipheader)
 	return FORWARD;
 }	
 
-
 int send_ip (interface_t *inf, char *packet, int packetsize) {
 	
 	printf("sending to interface id %d\n", inf->id);
@@ -500,9 +511,6 @@ int init_routing_table() {
 	}
 	return 0;
 }
-
-
-
 
 rtu_routing_entry *find_route_entry(uint32_t destVip) {
 	
@@ -599,7 +607,7 @@ int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
 	}
 	
 	return sockfd;
-}	/* -----  end of function get_socket  ----- */
+}
 
 
 int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
@@ -612,11 +620,6 @@ int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = type;
-
-	/* 
-	if(local){	
-		hints.ai_flags = AI_PASSIVE;
-	} */
 	
 	if ((status = getaddrinfo(NULL, port, &hints, addr)) != 0) {
 		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));

@@ -62,6 +62,7 @@ void print_interfaces();
 int setup_interface(char *filename);
 
 //temporary function for looking up interfaces
+uint32_t route_lookup(uint32_t final_dest);
 interface_t *inf_tosendto(uint32_t dest_vip);
 //send out RIP request packets to every local interfaces
 
