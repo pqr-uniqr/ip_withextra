@@ -20,77 +20,58 @@
 #include "node.h"
 #include "routes.h"
 
-
 int interface_count = 0, maxfd;
 list_t  *interfaces, *routes;
 fd_set masterfds;
 rtu_routing_entry *routing_table;
 
 
-int main ( int argc, char *argv[] )
-{
+int main ( int argc, char *argv[]) {
+	
 	if(argc < 1){
 		printf("usage: node lnxfilename\n");
 		exit(1);
 	}
-
+	
+	struct timeval tv, tvcopy;
+	char readbuf[CMDBUFSIZE], recvbuf[RECVBUFSIZE];
+	char *token, *rippart;
+	char *delim = " ";
+	int read_bytes, received_bytes, j , totsize;
+	struct sockaddr sender_addr;
+	socklen_t addrlen= sizeof sender_addr;
+	char xx[INET_ADDRSTRLEN];
+	struct iphdr *ipheader;
+	interface_t *i;
+	rtu_routing_entry *ent;
+	rip_packet *rip;
+	node_t *curr;
+	int maTime = 9;
+	
 	fd_set readfds;
 	FD_ZERO(&readfds);
 	FD_ZERO(&masterfds);
 	FD_SET(0, &masterfds);
-	struct timeval tv, tvcopy;
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
 	maxfd = 2;
 
 	if(setup_interface(argv[1]) == -1){
-		printf(_RED_"ERROR : setup_interface failed\n"_NORMAL_);
+		printf("ERROR : setup_interface failed\n");
 		exit(1);
 	}
 	
 	if (init_routing_table() == -1) {
-		printf(_RED_"ERROR : init_routing failed\n"_NORMAL_);
+		printf("ERROR : init_routing failed\n");
 		exit(1);
 	}
-	
-	printf("\tNode all set [ CTRL-D / CTRL-C to exit]\n");
-	
-	node_t *curr;
-	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
-		routing_table_send_request((interface_t *)curr->data);
-	}
-	
-	int maTime = 0;
-	
-	char readbuf[CMDBUFSIZE];
-	char recvbuf[RECVBUFSIZE];
-	char *token;
-	char *delim = " ";
-	int read_bytes;
-	int received_bytes;
-	struct sockaddr sender_addr;
-	socklen_t addrlen= sizeof sender_addr;
-	
-	int totsize;
-	struct iphdr *ipheader;
-	
+
 	while(1){
 		
-		if (maTime++ == 5) {
-			
-			printf("\tTrigger Update\n");
+		if (++maTime == 10) {
 			maTime = 0;
-			ipheader = (struct iphdr *)malloc(sizeof(struct iphdr));
-			
-			for(curr = interfaces->head;curr!=NULL;curr=curr->next){
-			
-				interface_t *i = (interface_t *)curr->data;
-				rip_packet *pack = routing_table_send_response(ipheader->saddr, &totsize);
-				char *packet = malloc(IPHDRSIZE + totsize);
-				int maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet); 			
-				send_ip(i, packet, maSize);					
-				
-			}
+			//printf("\troute: regular update.\n");
+			routing_table_send_update();
 		}
 		
 		readfds = masterfds;
@@ -103,63 +84,63 @@ int main ( int argc, char *argv[] )
 		
 		for(curr = interfaces->head;curr!=NULL;curr=curr->next){
 			
-			interface_t *i = (interface_t *)curr->data;
+			i = (interface_t *)curr->data;
 			
 			if(FD_ISSET(i->sockfd, &readfds)){
 				
-				received_bytes = recvfrom(i->sockfd, recvbuf, RECVBUFSIZE, 0, &sender_addr, &addrlen);
-				
-				if(received_bytes == -1){
+				if ((received_bytes = recvfrom(i->sockfd, recvbuf, RECVBUFSIZE, 0, &sender_addr, &addrlen)) == -1) {
 					perror("recvfrom()");
 					exit(1);
 				}
-
-				struct iphdr *ipheader = (struct iphdr *)malloc(sizeof(struct iphdr));
+				
+				ipheader = (struct iphdr *)malloc(sizeof(struct iphdr));
+				
+				/*
+				inet_ntop(AF_INET, ((struct in_addr *)&(i->sourcevip)), xx, INET_ADDRSTRLEN);
+				printf(_BRED_"\tnet_recv_thread: packet received. Dest = %s\n"_NORMAL_, xx);
+				* we don't know the destination of this packet yet
+				*/
 				
 				if(id_ip_packet(recvbuf,&ipheader) == LOCALDELIVERY){
-										
+					
+					//printf(_BRED_"\tnet_send: packet is to one of our own interfaces\n"_NORMAL_);
+					
 					if(ipheader->protocol == RIP){
+
+						inet_ntop(AF_INET, ((struct in_addr *)&(i->destaddr)), xx, INET_ADDRSTRLEN);
+						//printf("\trip_handler: Received packet from %s\n", xx);						
+						inet_ntop(AF_INET, ((struct in_addr *)&(ipheader->saddr)), xx, INET_ADDRSTRLEN);
+						//printf("\t, says it's from %s\n", xx);
+
 						
-						char *rippart = recvbuf+IPHDRSIZE;
-						rip_packet *rip = malloc(sizeof(rip_packet));
+						rippart = (char *)recvbuf+IPHDRSIZE;
+						rip = (rip_packet *)malloc(sizeof(rip_packet));
 						memcpy(rip,rippart,sizeof(rip_packet));
-						printf(_BMAGENTA_"\tRoute Request [Command %d] [num_entries %d]\n"_NORMAL_, rip->command, rip->num_entries);
-												
-						if(rip->command == REQUEST){
+						
+						if(ntohs(rip->command) == REQUEST){
 							
-							int totsize;
 							rip_packet *pack = routing_table_send_response(ipheader->saddr, &totsize);
 							char *packet = malloc(IPHDRSIZE + totsize);
-							int maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet); 			
-							send_ip(i, packet, maSize);							
+							int packetsize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)RIP, pack, totsize, &packet); 	
 							
-						} else {
-							
-							int size = sizeof(rip_packet) + sizeof(rip_entry)*rip->num_entries;
+							send_ip(i, packet, packetsize);
+						}
+						else if (ntohs(rip->command) == RESPONSE) {
+							int size = sizeof(rip_packet) + sizeof(rip_entry)*ntohs(rip->num_entries);
 							rip_packet *tmp = (rip_packet *)malloc(size);
 							memcpy(tmp, rippart, size);
-							printf(_RED_"\tRouting table received [Command %d] [num_entries %d]\n"_NORMAL_,tmp->command, tmp->num_entries);
 							
-							char xx[INET_ADDRSTRLEN];
-							int j;
-							
-							for (j = 0; j < tmp->num_entries; j++) {
-								inet_ntop(AF_INET, ((struct in_addr *)&(tmp->entries[j].addr)), xx, INET_ADDRSTRLEN);
-								printf(_BBLUE_"\tEntry -> [Next Hop %s] [Cost %u]\n", xx, tmp->entries[j].cost);
-							}
-							
-							routing_table_update(tmp, i->sourcevip, i->destvip);
-							
+							route_table_update(tmp, i->sourcevip);
+							//routing_table_update(tmp, i->sourcevip, ipheader->saddr);
 						}
-					
-					} else if (ipheader->protocol == IP){
-						
+					} 
+					else if (ipheader->protocol == IP) {
 						recvbuf[received_bytes] = '\0';
 						char *payload = recvbuf+IPHDRSIZE;
 						printf("payload on packet says: %s\n", payload);
 					}
-				} else {
-					
+				} 
+				else {
 					printf("packet to be forwarded\n");
 					char buf[received_bytes];
 					uint32_t nexthop;
@@ -201,9 +182,9 @@ int main ( int argc, char *argv[] )
 				
 				char yy[INET_ADDRSTRLEN];
 				inet_ntop(AF_INET, ((struct in_addr *)&(nexthop)), yy, INET_ADDRSTRLEN);
-				printf(_BBLUE_"\tSENDING TO-> [Next Hop %s]\n", yy);
+				//printf("\tSENDING TO-> [Next Hop %s]\n", yy);
 				
-				inf = inf_tosendto(nexthop); 
+				inf = inf_tosendto(nexthop);
 			
 				token = strtok_r(NULL, delim, &data);
 				char *packet = malloc(IPHDRSIZE + strlen(data));
@@ -251,6 +232,190 @@ int main ( int argc, char *argv[] )
 	return EXIT_SUCCESS;
 }
 
+int route_table_update(rip_packet *table, uint32_t inf_from) {
+	
+	int i, trigger = 0;
+	uint32_t address, cost;
+	rtu_routing_entry *entry;
+	node_t *curr;
+	interface_t *inf;
+	char dest[INET_ADDRSTRLEN];
+	
+	for (i = 0; i < ntohs(table->num_entries); i++) {
+		
+		address = table->entries[i].addr;
+		cost = ntohl(table->entries[i].cost);
+		HASH_FIND(hh, routing_table, &address, sizeof(uint32_t), entry);
+		
+		// case (1)
+		if (entry == NULL) {
+			
+			entry = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
+			entry->addr = address;
+			HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), entry);
+			entry->nexthop = inf_from;
+			entry->cost = cost + HOP_COST;
+			
+			inet_ntop(AF_INET, ((struct in_addr *)&(entry->addr)), dest, INET_ADDRSTRLEN);
+			printf("\tCASE 1 : %s, cost=%d.\n", dest, entry->cost);
+			trigger = 1;
+			continue;
+		}	
+		if (entry->addr == entry->nexthop) {
+			printf("\tCASE 2 : Moving on\n");
+			continue;
+		}
+		for(curr = interfaces->head;curr!=NULL;curr=curr->next){
+			
+			inf = (interface_t *)curr->data;
+			if (inf->destvip == entry->addr) {
+				printf("\tCASE 3 : Hey Neighbor\n");
+				continue;
+			}
+		}
+	}
+	
+	if(trigger){
+		routing_table_send_update();
+	}
+	return 0;
+}
+
+
+//src addr should be the address of our interface
+//dest addr should be the source address of the packet
+int routing_table_update(rip_packet *table, uint32_t src_addr, uint32_t dest_addr) {
+	
+	int i;
+	uint32_t addr, nexthop, cost;
+	char dest[INET_ADDRSTRLEN], from[INET_ADDRSTRLEN], source[INET_ADDRSTRLEN];
+	rtu_routing_entry *entry;
+	
+	inet_ntop(AF_INET, ((struct in_addr *)&(dest_addr)), dest, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, ((struct in_addr *)&(src_addr)), source, INET_ADDRSTRLEN);
+	//printf("\t [routing table update()] received src_addr = %s and ip_header %s\n", source, dest);
+	
+	//for every entry in B's routing table
+	for (i = 0; i < ntohs(table->num_entries); i++) {
+		
+		addr = table->entries[i].addr;
+		cost = ntohl(table->entries[i].cost);
+
+		inet_ntop(AF_INET, ((struct in_addr *)&(addr)), dest, INET_ADDRSTRLEN);
+		//printf("\tUpdate Table : Address=%s Cost is %d\n", dest, cost);
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(addr)), from, INET_ADDRSTRLEN);
+		
+		HASH_FIND(hh, routing_table, &dest_addr, sizeof(uint32_t), entry);
+		
+		if (entry == NULL) {
+			//make a new entry
+			entry = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
+			entry->addr = dest_addr;
+			HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), entry);
+			entry->nexthop = src_addr;
+			entry->cost = cost + HOP_COST;
+			printf("\troute: Added new route to %s, cost=%d.\n", dest, entry->cost);
+			routing_table_send_update();
+		} 
+		else {
+			if (entry->addr == src_addr) {
+				printf("IGNORE CASE\n");
+				continue;
+			}
+			else {
+				//printf("\tOld Cost (our cost) %d External cost %d\n", entry->cost, cost);
+				if (entry->cost > cost+1) {
+					printf("\tBetter cost found. Updating the entry [OLD COST %d] [NEW COST %d]\n", entry->cost, cost);
+					entry->cost = cost;
+					routing_table_send_update();
+				}
+			}
+		}	
+	}
+	
+	return 0;	
+}
+/*
+ * 
+ * 			if (entry->addr == src_addr) {
+				printf("IGNORE CASE\n");
+				continue;
+			}
+			else {
+				/printf("\tOld Cost (our cost) %d External cost %d\n", entry->cost, cost);
+				if (entry->cost > cost+1) {
+					printf("\tBetter cost found. Updating the entry [OLD COST %d] [NEW COST %d]\n", entry->cost, cost);
+					entry->cost = cost;
+					routing_table_send_update();
+				}
+				else {
+					printf("\tMORE COST Ignoring\n");
+				}
+			}
+ * 
+ */ 
+int init_routing_table() {
+	
+	routing_table = NULL;
+	node_t *curr;
+	int i = 0;
+	
+	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
+		interface_t *inf = (interface_t *)curr->data;
+		if (route_table_add(inf->sourcevip, inf->sourcevip, 0, 1) == -1) { //local
+			printf("WARNING : Entry was NOT added to routing table!\n");
+			continue;
+		}
+	}
+	return 0;
+}
+void routing_table_send_update() {
+	struct iphdr *ipheader;
+	node_t *curr;
+	char yyy[INET_ADDRSTRLEN];
+	interface_t *i;
+	rip_packet *pack;
+	char *packet;
+	int maSize, totsize;
+	
+	printf("\tSending routing table to everyone.\n");	
+	ipheader = (struct iphdr *)malloc(sizeof(struct iphdr));
+	
+	for(curr = interfaces->head;curr!=NULL;curr=curr->next){
+		
+		i = (interface_t *)curr->data;
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(i->sourcevip)), yyy, INET_ADDRSTRLEN);
+		printf("\tSending routing table to interface %s\n", yyy);
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(i->destvip)), yyy, INET_ADDRSTRLEN);
+		printf("\tSending update to %s\n", yyy);
+		
+		pack = routing_table_send_response(ipheader->saddr, &totsize);
+		packet = malloc(IPHDRSIZE + totsize);
+		
+		maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet); 	
+		
+		send_ip(i, packet, maSize);					
+	}
+	
+	//printf("\tupdating routing table with own interfaces\n");
+}
+
+
+void routing_table_refresh_entries() {
+	
+	rtu_routing_entry *info, *tmp;
+	char xx[INET_ADDRSTRLEN];
+	
+	HASH_ITER(hh, routing_table, info, tmp) {
+		
+		inet_ntop(AF_INET, ((struct in_addr *)&(info->addr)), xx, INET_ADDRSTRLEN);
+		info->ttl = info->ttl-1;
+	}	
+}
+
 interface_t *inf_tosendto (uint32_t dest_vip) {
 	
 	node_t *curr;
@@ -260,45 +425,12 @@ interface_t *inf_tosendto (uint32_t dest_vip) {
 			return inf;
 		}
 	}
-	printf("\tWarning : interface not found\n");
+	//printf("\tWarning : interface not found\n");
 	return NULL;	
 }
 
-int routing_table_update(rip_packet *table, uint32_t src_addr, uint32_t dest_addr) {
-	
-	int i;
-	uint32_t addr, nexthop, cost;
-	char src[INET_ADDRSTRLEN];
-	char dest[INET_ADDRSTRLEN];
-	char from[INET_ADDRSTRLEN];
-	rtu_routing_entry *entry;
-	
-	inet_ntop(AF_INET, ((struct in_addr *)&(src_addr)), src, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, ((struct in_addr *)&(dest_addr)), dest, INET_ADDRSTRLEN);
-	printf(_MAGENTA_"\ttable received from [Address : %s] [next Hop : %s]\n", src, dest);
-	
-	for (i = 0; i < table->num_entries; i++) {
-		
-		addr = table->entries[i].addr;
-		cost = table->entries[i].cost;
-		
-		inet_ntop(AF_INET, ((struct in_addr *)&(addr)), from, INET_ADDRSTRLEN);
-		printf(_MAGENTA_"\tRoute Entry Receieved [Address : %s] [Cost : %d]\n", from, cost);
-		
-		HASH_FIND(hh, routing_table, &addr, sizeof(uint32_t), entry);
-		
-		if (entry == NULL) {
-			
-			printf(_MAGENTA_"\tCase 1 : new entry, adding\n"_NORMAL_);
-			entry = (rtu_routing_entry *)malloc(sizeof(rtu_routing_entry));
-			entry->addr = addr;
-			HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), entry);
-			entry->nexthop = src_addr;
-			entry->cost = cost + HOP_COST;
-			
-		}
-	}	
-}
+
+
 uint32_t routing_table_get_nexthop (uint32_t dest) {
 	
 	rtu_routing_entry *entry;
@@ -315,9 +447,7 @@ rip_packet *routing_table_send_response(uint32_t dest, int *totsize) {
 	rip_packet *packet;
 	int num_routes = HASH_COUNT(routing_table);
 	int size = sizeof(rip_packet) + sizeof(rip_entry)*num_routes;
-	char xxx[INET_ADDRSTRLEN];
-	
-	printf(_BBLUE_"\tResponding with out routing table [# routes %d] [Size %d]"_NORMAL_"\n", num_routes, size);
+	char addr[INET_ADDRSTRLEN], nexthop[INET_ADDRSTRLEN];
 	
 	packet = (rip_packet *)malloc(size);
 	if (packet == NULL) {
@@ -325,16 +455,33 @@ rip_packet *routing_table_send_response(uint32_t dest, int *totsize) {
 		exit(1);
 	}
 	
-	packet->command 	= (uint16_t)RESPONSE;
-	packet->num_entries = (uint16_t)num_routes; 
+	packet->command 	= htons((uint16_t)RESPONSE);
+	packet->num_entries = htons((uint16_t)num_routes);
+	
+	//printf("\troute-table has size %d\n", num_routes);
 	
 	int index = 0;
 	rtu_routing_entry *info, *tmp;
+	uint32_t cost;
 	
 	HASH_ITER(hh, routing_table, info, tmp) {
 		
+		inet_ntop(AF_INET, ((struct in_addr *)&(info->addr)), addr, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, ((struct in_addr *)&(info->nexthop)), nexthop, INET_ADDRSTRLEN);
+		
+		//printf("\t    cost=%d, addr=%s nexthop=%s\n", info->cost, addr, nexthop);
+		
+		//split hotizon poison reverse
+		/*
+		if (dest == info->nexthop && info->cost != 0) {
+			cost = INFINITY;
+		} else {
+			cost = info->cost;
+		}
+		*/
+		cost = info->cost;
 		packet->entries[index].addr = info->addr;
-		packet->entries[index].cost = info->cost;
+		packet->entries[index].cost = htonl(cost);
 		
 		index++;
 	}	
@@ -342,22 +489,7 @@ rip_packet *routing_table_send_response(uint32_t dest, int *totsize) {
 	return packet;
 }
 
-int init_routing_table() {
-	
-	routing_table = NULL;
-	node_t *curr;
-	int i = 0;
-	
-	printf(_MAGENTA_"\tUpdating routing table with own interfaces\n"_NORMAL_);
-	for (curr = interfaces->head; curr != NULL; curr = curr->next) {
-		interface_t *inf = (interface_t *)curr->data;
-		if (route_table_add(inf->sourcevip, inf->sourcevip, 0, 1) == -1) { //local
-			printf("WARNING : Entry was NOT added to routing table!\n");
-			continue;
-		}
-	}
-	return 0;
-}
+
 
 int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
 
@@ -373,21 +505,28 @@ int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local) {
 			return -1;
 		}
 		
-		inet_ntop(AF_INET, ((struct in_addr *)&(srcVip)), dest, INET_ADDRSTRLEN);
-		printf(_MAGENTA_"\tFound new route to %s, cost=%d\n"_NORMAL_, dest, cost);
+		inet_ntop(AF_INET, ((struct in_addr *)&(destVip)), dest, INET_ADDRSTRLEN);
+		//printf("\troute: Found new route to %s, cost=%d\n", dest, cost);
 		
 		new->addr = destVip;	
 		HASH_ADD(hh, routing_table, addr, sizeof(uint32_t), new);
+		new->cost = cost;
+		new->nexthop = srcVip;
+		new->local = local;	
+		new->ttl = REFRESH_TIME;
 	}
-	new->cost = cost;
-	new->nexthop = srcVip;
-	new->local = local;	
+	else {
+		inet_ntop(AF_INET, ((struct in_addr *)&(destVip)), dest, INET_ADDRSTRLEN);
+		//printf("\troute: Refreshing entry for %s, cost still %d\n", dest, new->cost);
+		new->ttl = REFRESH_TIME;
+	}
+	
 	return 0;
 }
 
 int routing_table_send_request(interface_t *inf) {
 	
-	printf(_MAGENTA_"\tSending out requests to all our interfaces\n"_NORMAL_);
+	
 	int packet_size = IPHDRSIZE + sizeof(rip_packet);
 	
 	rip_packet *request = (rip_packet *) malloc(sizeof(rip_packet));
@@ -423,31 +562,27 @@ void routing_table_print_packet(rip_packet *packet) {
 
 
 
-int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet)
-{
-	//printf("encapsulate_inip()\n");
+int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet) {
+
 	struct iphdr *h=(struct iphdr *) malloc(IPHDRSIZE);
 	memset(h,0,IPHDRSIZE);
 
 	int packetsize = IPHDRSIZE + datasize;
 
-	//fill in the header with necessary information
 	h->version = 4;
 	h->ihl = 5;
-	h->tot_len = packetsize;
+	h->tot_len = htons(packetsize);
 	h->protocol = protocol;
 	h->saddr = src_vip;
 	h->daddr = dest_vip;
 
-	//copy header and payload to the given char*
 	memcpy(*packet,h,IPHDRSIZE);
 	char *datapart = *packet + IPHDRSIZE;
 	memcpy(datapart, data, datasize);
-	int checksum = ip_sum(*packet, h->tot_len);
+	int checksum = ip_sum(*packet, IPHDRSIZE);
 	char *check = *packet + sizeof(uint8_t)*4 + sizeof(uint16_t)*3;
 	memcpy(check,&checksum,sizeof(uint16_t));
 	
-	//printf("checksum %d\n", checksum);
 	free(h);
 	return packetsize;
 }
@@ -457,10 +592,9 @@ int id_ip_packet (char *packet, struct iphdr **ipheader) {
 	char *p = packet;
 	struct iphdr *i = *ipheader;
 	memcpy(i, p, sizeof(uint8_t));
-	//p=p+sizeof(int);
-	//memcpy(i->version,p, sizeof(int));
 	p=p+sizeof(uint8_t)*2;
 	memcpy(&(i->tot_len), p, sizeof(uint16_t));
+	i->tot_len = ntohs(i->tot_len);
 	p=p+sizeof(uint16_t)*3+sizeof(uint8_t);
 	memcpy(&(i->protocol), p, sizeof(uint8_t));
 	p=p+sizeof(uint8_t); 
@@ -470,9 +604,7 @@ int id_ip_packet (char *packet, struct iphdr **ipheader) {
 	memcpy(&(i->saddr), p, sizeof(uint32_t));
 	p=p+sizeof(uint32_t);
 	memcpy(&(i->daddr), p, sizeof(uint32_t));
-	int checksum = ip_sum(packet,i->tot_len);
-
-	//printf("old checksum: %d, new checksum: %d\n", i->check, checksum);
+	int checksum = ip_sum(packet,IPHDRSIZE);
 
 	char src[INET_ADDRSTRLEN];
 	char dest[INET_ADDRSTRLEN];
@@ -488,7 +620,6 @@ int id_ip_packet (char *packet, struct iphdr **ipheader) {
 	source: %s\n\
 	destination: %s\n",i->version,i->ihl,i->tot_len,i->protocol,checksum==i->check,src,dest);
 	*/
-
 	node_t *curr;
 	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
 		interface_t *inf=curr->data;
@@ -501,11 +632,9 @@ int id_ip_packet (char *packet, struct iphdr **ipheader) {
 
 int send_ip (interface_t *inf, char *packet, int packetsize) {
 	
-	//printf("sending to interface id %d\n", inf->id);
 	int bytes_sent;
 	char tbs[packetsize];
 	memcpy(tbs, packet, packetsize);
-	//printf("family: %d, data: %s\n", inf->destaddr->sa_family, inf->destaddr->sa_data);
 	bytes_sent = sendto(inf->sockfd, tbs, packetsize, 0, inf->destaddr, sizeof(struct sockaddr));
 
 	if(bytes_sent == -1){
@@ -514,13 +643,13 @@ int send_ip (interface_t *inf, char *packet, int packetsize) {
 	}
 
 	if(bytes_sent != packetsize){
-		printf("send_ip(): %d bytes were out of %d bytes total\n", bytes_sent, packetsize);
+		//printf("send_ip(): %d bytes were out of %d bytes total\n", bytes_sent, packetsize);
 	} else {
 		//printf("send_ip() successful-- %d bytes sent\n", bytes_sent);
 	}
 
 	return 0;
-}		/* -----  end of function send_ip  ----- */
+}
 
 rtu_routing_entry *find_route_entry(uint32_t destVip) {
 	
@@ -531,7 +660,6 @@ rtu_routing_entry *find_route_entry(uint32_t destVip) {
 		printf("COULD NOT FIND THE ENTRY\n");
 		return NULL;
 	}
-	printf("Found the route\n");
 	return entry;
 	
 }
@@ -542,18 +670,17 @@ int setup_interface(char *filename) {
 	node_t *curr;
 	struct addrinfo *srcaddr, *destaddr;
 	list_init(&interfaces);
-	char src[INET_ADDRSTRLEN], dest[INET_ADDRSTRLEN];
+	char src[INET_ADDRSTRLEN];
+	char dest[INET_ADDRSTRLEN];
 	
 	for (curr = links->head; curr != NULL; curr = curr->next) {
 		
 		link_t *sing = (link_t *)curr->data;
 		
-		inet_ntop(AF_INET, ((struct in_addr *)&(sing->local_virt_ip)), src, INET_ADDRSTRLEN);
-		inet_ntop(AF_INET, ((struct in_addr *)&(sing->remote_virt_ip)), dest, INET_ADDRSTRLEN);
-		printf(_MAGENTA_"\tBringing up interface %s -> %s\n"_NORMAL_, src, dest);
+		
 		
 	    interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
-	    inf->id 	= ++interface_count;
+	    inf->id 	= interface_count++;
 	    inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
 		get_addr(sing->remote_phys_port, &destaddr, SOCK_DGRAM, 0);
 		inf->destaddr = malloc(sizeof(struct sockaddr));
@@ -564,15 +691,14 @@ int setup_interface(char *filename) {
 		freeaddrinfo(destaddr);
 		freeaddrinfo(srcaddr);
 		
-		//printf("family: %d, data: %s\n", destaddr->ai_addr->sa_family, destaddr->ai_addr->sa_data);
-		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->destaddr)->sa_family, ((struct sockaddr *)inf->destaddr)->sa_data);
-		//printf("family: %d, data: %s\n", srcaddr->ai_addr->sa_family, srcaddr->ai_addr->sa_data);
-		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->sourceaddr)->sa_family, ((struct sockaddr *)inf->sourceaddr)->sa_data);
-
         inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
 	    inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
     	inf->status = UP;
-    		
+    	
+    	inet_ntop(AF_INET, ((struct in_addr *)&(inf->sourcevip)), src, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, ((struct in_addr *)&(inf->destvip)), dest, INET_ADDRSTRLEN);
+		//printf("\tBringing up interface %s -> %s\n", src, dest);
+    	
 		list_append(interfaces, inf);
 
 		FD_SET(inf->sockfd, &masterfds);
@@ -645,17 +771,15 @@ void print_interfaces ()
 	node_t *curr;
 	interface_t *inf;
 	char src[INET_ADDRSTRLEN], dest[INET_ADDRSTRLEN];
-	printf(_BLUE_"\t ---- ROUTING TABLE ---- \n");
-	printf("\t  ID\t  SOCKFD \t SOURCE\t\tDESTINATION\n");
-	printf("\t |-------|------|--------------------|--------------------|\n");
+	printf("Interfaces:\n");
 	
 	for(curr = interfaces->head;curr!=NULL;curr=curr->next){
 		inf = (interface_t *)curr->data;
 		inet_ntop(AF_INET, ((struct in_addr *)&(inf->sourcevip)), src, INET_ADDRSTRLEN);
 		inet_ntop(AF_INET, ((struct in_addr *)&(inf->destvip)), dest, INET_ADDRSTRLEN);
-		printf("\t  %d\t  %d\t%s\t\t%s\n",inf->id, inf->sockfd, src, dest);
+		printf("  %d: %s->%s. %s\n",inf->id, src, dest, (inf->status == UP) ? "UP" : "DOWN");
 	}
-}		/* -----  end of function print_interface  ----- */
+}		
 
 void print_routes () 
 {
@@ -664,15 +788,13 @@ void print_routes ()
 	char src[INET_ADDRSTRLEN];
 	char nexthop[INET_ADDRSTRLEN];
 	
-	printf(_BLUE_"\t ---- ROUTING TABLE ---- \n");
-	printf("\t  Address \t  Next Hop \tCost\tLocal\n");
-	printf("\t |-------------|------------ |--------|------|\n");
+	printf("Routing table:\n");
 	
 	HASH_ITER(hh, routing_table, info, tmp) {
 		
 		inet_ntop(AF_INET, ((struct in_addr *)&(info->addr)), src, INET_ADDRSTRLEN);
 		inet_ntop(AF_INET, ((struct in_addr *)&(info->nexthop)), nexthop, INET_ADDRSTRLEN);
-		printf("\t %s\t%s\t%d\t%s\n",src, nexthop, info->cost, (info->local == 1) ? "YES" : "NO");
+		printf("  Route to %s with cost %d, %s\n",src, info->cost, (info->local == 1) ? "through self" : "remote");
 		
 	}
 	

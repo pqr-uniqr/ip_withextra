@@ -29,12 +29,11 @@
 #define IP 0
 #define RIP 200
 
+#define REFRESH_TIME	30
+
 typedef struct interface_t interface_t;
 typedef struct interface_t 			interface_t;
 typedef struct rtu_routing_entry 	rtu_routing_entry;
-//typedef struct routing_table		routing_table;
-//typedef struct routing_table*		routing_table_t;
-//typedef struct rtu_routing_entry*	routing_entry_t;
 
 struct interface_t{
 	int id;
@@ -51,6 +50,7 @@ struct rtu_routing_entry {
 	uint32_t cost;
 	uint32_t nexthop;
 	int local;
+	time_t ttl;
 	
 	UT_hash_handle hh;
 };
