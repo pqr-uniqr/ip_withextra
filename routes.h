@@ -4,6 +4,10 @@
 #define INFINITY 	16
 #define MAX_ROUTES	64
 #define HOP_COST	1
+
+#define NEIGHBOUR	0
+#define ANONYMOUS	1
+
 typedef struct rip_entry 	rip_entry;
 typedef struct rip_packet 	rip_packet;
 
@@ -30,6 +34,9 @@ void routing_table_print_packet(rip_packet *packet);
 uint32_t routing_table_get_nexthop(uint32_t dest);
 
 interface_t *inf_tosendto(uint32_t dest_vip);
-int routing_table_update(rip_packet *table, uint32_t src_addr, uint32_t dest_addr);
 
-void trigger_update(int sig);
+int routing_table_update(rip_packet *table, uint32_t src_addr, uint32_t dest_addr, int type);
+int route_table_update(rip_packet *table, uint32_t inf_from);
+
+void routing_table_refresh_entries();
+void routing_table_send_update();
