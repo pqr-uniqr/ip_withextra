@@ -22,14 +22,15 @@
 #include "routes.h"
 
 
-int interface_count = 0, maxfd, ident = 0;
+int interface_count = 0, maxfd;
 list_t  *interfaces, *routes;
 fd_set masterfds;
 rtu_routing_entry *routing_table;
+frag_list *piecekeeper;
 
 
 int main ( int argc, char *argv[]) {
-	
+
 	if(argc < 1){
 		printf("usage: node lnxfilename\n");
 		exit(1);
@@ -39,7 +40,7 @@ int main ( int argc, char *argv[]) {
 	char readbuf[CMDBUFSIZE], recvbuf[RECVBUFSIZE];
 	char *token, *rippart;
 	char *delim = " ";
-	int read_bytes, received_bytes, totsize;
+	int read_bytes, received_bytes, totsize, myident = 1;
 	struct sockaddr sender_addr;
 	socklen_t addrlen= sizeof sender_addr;
 	char xx[INET_ADDRSTRLEN];
@@ -53,39 +54,38 @@ int main ( int argc, char *argv[]) {
 	fd_set readfds;
 	FD_ZERO(&readfds);
 	FD_ZERO(&masterfds);
-	FD_SET(0, &masterfds);
-	tv.tv_sec = 1;
-	tv.tv_usec = 0;
-	maxfd = 2;
+		FD_SET(0, &masterfds);
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
+		maxfd = 2;
 
-	if(setup_interface(argv[1]) == -1){
-		printf("ERROR : setup_interface failed\n");
-		exit(1);
-	}
-	
-	if (init_routing_table() == -1) {
-		printf("ERROR : init_routing failed\n");
-		exit(1);
-	}
-
-	while(1){
+		if(setup_interface(argv[1]) == -1){
+			printf("ERROR : setup_interface failed\n");
+			exit(1);
+		}
 		
-		if (++maTime == 10) {
-			maTime = 0;
-			ipheader = (struct iphdr *)malloc(sizeof(struct iphdr));
-			
-			for(curr = interfaces->head;curr!=NULL;curr=curr->next){
-			
-				interface_t *i = (interface_t *)curr->data;
+		if (init_routing_table() == -1) {
+			printf("ERROR : init_routing failed\n");
+			exit(1);
+		}
 
-				rip_packet *pack = routing_table_send_response(i->sourcevip, &totsize);
-				char *packet = malloc(IPHDRSIZE + totsize);
-				int maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet, -1, 0);
-				send_ip(i, packet, maSize);					
-				free(packet);
-				free(pack);
+		while(1){
+			
+			if (++maTime == 10) {
+				maTime = 0;
+				ipheader = (struct iphdr *)malloc(sizeof(struct iphdr));
+				
+				for(curr = interfaces->head;curr!=NULL;curr=curr->next){
+				
+					interface_t *i = (interface_t *)curr->data;
+
+					rip_packet *pack = routing_table_send_response(i->sourcevip, &totsize);
+					char *packet = malloc(IPHDRSIZE + totsize);
+					int maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet, NOOFFSET, 0);
+					send_ip(i, packet, maSize);					
+					free(packet);
+					free(pack);
 			}
-			//printf("\troute: regular update.\n");
 			routing_table_send_update();
 		}
 		
@@ -129,11 +129,12 @@ int main ( int argc, char *argv[]) {
 							
 							rip_packet *pack = routing_table_send_response(ipheader->saddr, &totsize);
 							char *packet = malloc(IPHDRSIZE + totsize);
-							int packetsize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)RIP, pack, totsize, &packet, -1, 0); 
+							int packetsize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)RIP, pack, totsize, &packet, NOOFFSET, 0);
 							send_ip(i, packet, packetsize);
 							free(pack);
 							free(packet);
 						}
+
 						else if (ntohs(rip->command) == RESPONSE) {
 							int size = sizeof(rip_packet) + sizeof(rip_entry)*ntohs(rip->num_entries);
 							rip_packet *packet= (rip_packet *)malloc(size);
@@ -142,31 +143,106 @@ int main ( int argc, char *argv[]) {
 							free(packet);
 						}
 						free(rip);
+
 					} else if (ipheader->protocol == IP){
-						//TODO Defragmentation happens here: check if this packet is a fragmented one
-						recvbuf[received_bytes] = '\0';
-						char *payload = recvbuf+IPHDRSIZE;
-						printf("payload on packet says: %s (size %zu)\n", payload, strlen(payload));
+						//final Defragmentation 
+						if(ipheader->id){
+							printf("Fragmented IP packet detected\n");
+							
+							//get some informatio about the packet
+							uint16_t offset = ipheader->frag_off & ~(1<<13);
+							//uint32_t piece_num = offset*8/(i->mtu-IPHDRSIZE);
+							uint32_t l_id = ipheader->saddr + ipheader->id;
+							bool more = !!(ipheader->frag_off & (1<<13));
+							
+							printf("ident: %d offset: %d more?: %d\n", ipheader->id, offset, more);
+							
+							//check if we already have received other parts of this packet
+							frag_list *l;
+							HASH_FIND(hh, piecekeeper, &l_id, sizeof(uint32_t), l);
+							if(l == NULL){
+								l= malloc(sizeof(frag_list));
+								l->list_id = l_id;
+								list_init(&(l->list));
+								HASH_ADD(hh, piecekeeper, list_id, sizeof(uint32_t), l);
+							}
+
+							//prepare the packet to be stored in side the table
+							frag_ip *piece = (frag_ip *) malloc(sizeof(frag_ip));
+							piece->offset = offset;
+							piece->data = malloc(received_bytes - IPHDRSIZE);
+							memcpy(piece->data, recvbuf+IPHDRSIZE, received_bytes-IPHDRSIZE);
+							piece->datasize = received_bytes-IPHDRSIZE;
+							
+							//add the newest packet to the list
+							list_append(l->list, piece);
+							//if what I just received is the last fragment (M bit set to 0), finish it up, gather the 
+							//data we have so far and print it out
+							if(!more){
+								node_t *curr;
+								int total_size;
+								for(curr=l->list->head;curr!=NULL;curr=curr->next){
+									frag_ip *f = (frag_ip *)curr->data;
+									total_size+=f->datasize;
+								}
+								char *buffer = malloc(total_size + 1);
+								for(curr=l->list->head;curr!=NULL;curr=curr->next){
+									frag_ip *f = (frag_ip *)curr->data;
+									memcpy(buffer+(f->offset)*8, f->data, f->datasize);
+								}
+								buffer[total_size+1] = '\0';
+								printf("%s\n", buffer);
+								free(buffer);
+							}
+						} else {
+							recvbuf[received_bytes] = '\0';
+							char *payload = recvbuf+IPHDRSIZE;
+							printf("%s\n", payload);
+						}
+
 					}
 				}
 				else {
 					printf("packet to be forwarded\n");
 					uint32_t nexthop;
 					interface_t *inf;
-					int offset = -1;
+					uint16_t offset = NOOFFSET;
 					char *data = recvbuf + IPHDRSIZE;
-					printf("strlen(data): %zu \t%s\n", strlen(data), data);
 
 					nexthop = routing_table_get_nexthop(ipheader->daddr);
 					inf = inf_tosendto(nexthop);
-					/* 
-					if(IPHDRSIZE + received_bytes > inf->mtu){
-						fragment_send(inf, &data, strlen(data), &offset, ipheader->saddr, ipheader->daddr);
-					} */
-	
-					char *packet = malloc(IPHDRSIZE + strlen(data));
-					int packetsize = encapsulate_inip(ipheader->saddr, ipheader->daddr, ipheader->protocol, data, strlen(data), &packet, offset, ident);
-					send_ip(inf, packet, packetsize);
+
+					//fragmentation
+					if(received_bytes > inf->mtu){
+						printf("packet to small for this link's MTU- fragmeting\n");
+
+						char *packet = malloc(IPHDRSIZE + strlen(data));
+						if(ipheader->id){
+							uint16_t offset= ipheader->frag_off & ~(1<<13);
+							bool more = !!(ipheader->frag_off & (1<<13));
+							
+							fragment_send(inf, &data, strlen(data), &offset, ipheader->saddr, ipheader->daddr, ipheader->id);
+							if(!more){offset -= 1<<13;}
+							encapsulate_inip(ipheader->saddr, ipheader->daddr,ipheader->protocol,data, strlen(data), &packet, offset, ipheader->id);
+							
+						} else{
+							offset = 0;
+							fragment_send(inf, &data, strlen(data), &offset, ipheader->saddr, ipheader->daddr, myident);
+							offset-= 1<<13;
+							encapsulate_inip(ipheader->saddr, ipheader->daddr, ipheader->protocol, data, strlen(data), &packet, offset, myident);
+							myident++;
+						}
+
+						//unset the M bit
+						send_ip(inf, packet, strlen(data) + IPHDRSIZE);
+						free(packet);
+						myident++;
+						continue;
+					}
+
+					char *packet = malloc(received_bytes);
+					memcpy(packet, recvbuf, received_bytes);
+					send_ip(inf, packet, received_bytes);
 					free(packet);
 				}
 				free(ipheader);
@@ -191,10 +267,14 @@ int main ( int argc, char *argv[]) {
 				struct in_addr destaddr;
 				uint32_t nexthop;
 				interface_t *inf;
-				int offset = -1;
+				uint16_t offset = NOOFFSET;
 
 				//get VIP of destination and look up next hop and its interface
 				token = strtok_r(NULL,delim, &data);
+				if(token == NULL){
+					printf("usage: send vip proto string\n");
+				}
+
 				inet_pton(AF_INET, token, &destaddr);
 				nexthop = routing_table_get_nexthop(destaddr.s_addr);
 				inf = inf_tosendto(nexthop);
@@ -202,40 +282,44 @@ int main ( int argc, char *argv[]) {
 				printf(_BBLUE_"\tSENDING TO-> [NEXTHOP %s]\n", token);
 		
 				//get the protocol and pointer to the data
-				char yy[INET_ADDRSTRLEN];
-				inet_ntop(AF_INET, ((struct in_addr *)&(nexthop)), yy, INET_ADDRSTRLEN);
-				//printf("\tSENDING TO-> [Next Hop %s]\n", yy);
-				
 				token = strtok_r(NULL, delim, &data);
-				
-				/*  
-				printf("inf->mtu: %d\n packet size: %lu\n",inf->mtu,  IPHDRSIZE +strlen(data));
+				if(token == NULL){
+					printf("usage: send vip proto string\n");
+				}
+				//Fragmentation
 				if(IPHDRSIZE + strlen(data) > inf->mtu){
-					printf("fragment send\n");
-					fragment_send(inf, &data, strlen(data), &offset, inf->sourcevip, destaddr.s_addr);
-				} */
+					offset = 0;
+					fragment_send(inf, &data, strlen(data), &offset, inf->sourcevip, destaddr.s_addr, myident);
+				}
+
+				//unset the M bit
+				if(offset!=NOOFFSET){offset -= 1<<13;}
 
 				//send the last packet
 				char *packet = malloc(IPHDRSIZE + strlen(data));
-				int packetsize = encapsulate_inip(inf->sourcevip, destaddr.s_addr, atoi(token), data, strlen(data),&packet, offset, ident);
+				int packetsize = encapsulate_inip(inf->sourcevip, destaddr.s_addr, atoi(token), data, strlen(data),&packet, offset, myident);
 				send_ip(inf, packet, packetsize);
 				free(packet);
+				myident++;
 			}
 
 			if(!strcmp("up",token)){
-				strtok(readbuf, delim);
+				strtok(NULL, delim);
 			}
 			if(!strcmp("down",token)){
-				strtok(readbuf, delim);
+				strtok(NULL, delim);
 			}
-			if(!strcmp("routes", readbuf)){
+			if(!strcmp("routes", token)){
 				print_routes();
 			}
-			if(!strcmp("interfaces",readbuf)){
+			if(!strcmp("interfaces", token)){
 				print_interfaces();
 			}
 			if(!strcmp("q", readbuf)){
 				break;
+			}
+			if(!strcmp("mtu", readbuf)){
+
 			}
 		}
 	}
@@ -252,35 +336,41 @@ int main ( int argc, char *argv[]) {
 
 	list_free(&interfaces);
 
+	rtu_routing_entry *entry, *temp;
+	HASH_ITER(hh, routing_table, entry, temp){
+		HASH_DEL(routing_table, entry);
+		free(entry);
+	}
+
+	frag_list *list, *tmp;
+	HASH_ITER(hh, piecekeeper, list, tmp) {
+		for(curr=list->list->head;curr!=NULL;curr=curr->next){
+			frag_ip *f = (frag_ip *)curr->data;
+			free(f->data);
+		}
+		list_free(&list->list);
+		HASH_DEL(piecekeeper, list);
+		free(list);
+	}
+
 	return EXIT_SUCCESS;
 }
 
-	int
-fragment_send (interface_t *nexthop, char **data, int datasize, int *offset, uint32_t iporigin, uint32_t ipdest)
-{
-	/*
-	*offset = 0;
 
-	if(ident>MAXIDENT){
-		ident = 0;
-	}
-
+void fragment_send (interface_t *nexthop, char **data, int datasize, uint16_t *offset, uint32_t iporigin, uint32_t ipdest, uint16_t ident){
+	*offset += 1<<13;
 	int maxpayload = nexthop->mtu - IPHDRSIZE;
 	char *dataend = *data + datasize;
-	char buf[maxpayload];
 	char *packet = malloc(IPHDRSIZE + maxpayload);
+
 	while(*data < dataend-maxpayload){
-		memcpy(buf, data, maxpayload);
 		int packetsize = encapsulate_inip(iporigin, ipdest, IP, *data, maxpayload, &packet, *offset, ident);
 		send_ip(nexthop, packet, packetsize);
-		offset++;
+		*offset+=maxpayload/8;
 		*data+=maxpayload;
 	}
-	free(packet);
-	ident++;
-	*/
-	return 0; 
 }
+
 
 int route_table_update(rip_packet *table, uint32_t inf_from) {
 	int i, trigger = 0;
@@ -306,19 +396,19 @@ int route_table_update(rip_packet *table, uint32_t inf_from) {
 			entry->cost = cost + HOP_COST;
 			
 			inet_ntop(AF_INET, ((struct in_addr *)&(entry->addr)), dest, INET_ADDRSTRLEN);
-			printf("\tCASE 1 : %s, cost=%d.\n", dest, entry->cost);
+			//printf("\tCASE 1 : %s, cost=%d.\n", dest, entry->cost);
 			trigger = 1;
 			continue;
 		}	
 		if (entry->addr == entry->nexthop) {
-			printf("\tCASE 2 : Moving on\n");
+			//printf("\tCASE 2 : Moving on\n");
 			continue;
 		}
 		for(curr = interfaces->head;curr!=NULL;curr=curr->next){
 			
 			inf = (interface_t *)curr->data;
 			if (inf->destvip == entry->addr) {
-				printf("\tCASE 3 : Hey Neighbor\n");
+				//printf("\tCASE 3 : Hey Neighbor\n");
 				continue;
 			}
 		}
@@ -372,7 +462,7 @@ void routing_table_send_update() {
 		
 		pack = routing_table_send_response(ipheader->saddr, &totsize);
 		packet = malloc(IPHDRSIZE + totsize);
-		maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet, -1, 0);
+		maSize = encapsulate_inip(i->sourcevip, i->destvip, (uint8_t)200, pack, totsize, &packet, NOOFFSET, 0);
 		send_ip(i, packet, maSize);
 		free(pack);
 		free(packet);
@@ -394,6 +484,7 @@ void routing_table_refresh_entries() {
 }
 
 
+//A simple function that returns an interface whose source vip matches the parameter
 interface_t *inf_tosendto (uint32_t dest_vip) {
 	
 	node_t *curr;
@@ -403,13 +494,12 @@ interface_t *inf_tosendto (uint32_t dest_vip) {
 			return inf;
 		}
 	}
-	//printf("\tWarning : interface not found\n");
 	return NULL;	
 }
 
 
 
-
+//a simple function that lets the forwarding portion query the routing table for the next hop
 uint32_t routing_table_get_nexthop (uint32_t dest) {
 	
 	rtu_routing_entry *entry;
@@ -516,7 +606,7 @@ int routing_table_send_request(interface_t *inf) {
 	request->num_entries = (uint16_t)0;
 	
 	char *packet = (char *)malloc(packet_size);
-	encapsulate_inip(inf->sourcevip, inf->destvip, (uint8_t)200, request, sizeof(rip_packet), &packet, -1, 0);
+	encapsulate_inip(inf->sourcevip, inf->destvip, (uint8_t)200, request, sizeof(rip_packet), &packet, NOOFFSET, 0);
 	free(request);
 
 	send_ip(inf, packet, packet_size);
@@ -542,8 +632,8 @@ void routing_table_print_packet(rip_packet *packet) {
 }
 
 
-
-int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet, int offset, int ident)
+//takes in necessary information (vip, protocol..) and payload buffer. Makes a packet and returns it in char **packet
+int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet, uint16_t offset, uint16_t ident)
 {
 	struct iphdr *h=(struct iphdr *) malloc(IPHDRSIZE);
 	memset(h,0,IPHDRSIZE);
@@ -557,6 +647,12 @@ int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, voi
 	h->saddr = src_vip;
 	h->daddr = dest_vip;
 
+	//for fragmentation
+	if(offset!=NOOFFSET){
+		h->id = ident;
+		h->frag_off = offset;
+	}
+
 	memcpy(*packet,h,IPHDRSIZE);
 	char *datapart = *packet + IPHDRSIZE;
 	memcpy(datapart, data, datasize);
@@ -569,7 +665,8 @@ int encapsulate_inip (uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, voi
 }
 
 
-
+//steps through the received IP packet and packs it back into a struct ip hdr
+//also returns a value suggesting whether the packet identified is to be delivered locally or forwarded
 int id_ip_packet (char *packet, struct iphdr **ipheader) {
 	
 	char *p = packet;
@@ -578,7 +675,11 @@ int id_ip_packet (char *packet, struct iphdr **ipheader) {
 	p=p+sizeof(uint8_t)*2;
 	memcpy(&(i->tot_len), p, sizeof(uint16_t));
 	i->tot_len = ntohs(i->tot_len);
-	p=p+sizeof(uint16_t)*3+sizeof(uint8_t);
+	p=p+sizeof(uint16_t);
+	memcpy(&(i->id), p, sizeof(uint16_t));
+	p=p+sizeof(uint16_t);
+	memcpy(&(i->frag_off),p, sizeof(uint16_t));
+	p=p+sizeof(uint16_t)+sizeof(uint8_t);
 	memcpy(&(i->protocol), p, sizeof(uint8_t));
 	p=p+sizeof(uint8_t); 
 	memcpy(&(i->check), p, sizeof(uint16_t));
@@ -614,6 +715,7 @@ int id_ip_packet (char *packet, struct iphdr **ipheader) {
 }	
 
 
+//takes in the next hop's interface and sends the packet to it.
 int send_ip (interface_t *inf, char *packet, int packetsize) {
 	int bytes_sent;
 	char tbs[packetsize];
@@ -623,12 +725,6 @@ int send_ip (interface_t *inf, char *packet, int packetsize) {
 	if(bytes_sent == -1){
 		perror("sendto()");
 		exit(-1);
-	}
-
-	if(bytes_sent != packetsize){
-		//printf("send_ip(): %d bytes were out of %d bytes total\n", bytes_sent, packetsize);
-	} else {
-		//printf("send_ip() successful-- %d bytes sent\n", bytes_sent);
 	}
 
 	return 0;
@@ -648,6 +744,7 @@ rtu_routing_entry *find_route_entry(uint32_t destVip) {
 	
 }
 
+//reads from the passed in lnx file and make interfaces based on each line.
 int setup_interface(char *filename) {
 
 	list_t *links = parse_links(filename);
@@ -656,14 +753,11 @@ int setup_interface(char *filename) {
 	list_init(&interfaces);
 	char src[INET_ADDRSTRLEN];
 	char dest[INET_ADDRSTRLEN];
-	
+
 	for (curr = links->head; curr != NULL; curr = curr->next) {
 		
 		link_t *sing = (link_t *)curr->data;
-		
-		//inet_ntop(AF_INET, ((struct in_addr *)&(sing->local_virt_ip)), src, INET_ADDRSTRLEN);
-		//inet_ntop(AF_INET, ((struct in_addr *)&(sing->remote_virt_ip)), dest, INET_ADDRSTRLEN);
-				
+
 	    	interface_t *inf = (interface_t *)malloc(sizeof(interface_t));
 	   	inf->id 	= ++interface_count;
 	   	inf->sockfd 	= get_socket(sing->local_phys_port, &srcaddr, SOCK_DGRAM);
@@ -677,36 +771,24 @@ int setup_interface(char *filename) {
 		freeaddrinfo(destaddr);
 		freeaddrinfo(srcaddr);
 		
-		//printf("family: %d, data: %s\n", destaddr->ai_addr->sa_family, destaddr->ai_addr->sa_data);
-		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->destaddr)->sa_family, ((struct sockaddr *)inf->destaddr)->sa_data);
-		//printf("family: %d, data: %s\n", srcaddr->ai_addr->sa_family, srcaddr->ai_addr->sa_data);
-		//printf("family: %d, data: %s\n", ((struct sockaddr *)inf->sourceaddr)->sa_family, ((struct sockaddr *)inf->sourceaddr)->sa_data);
-
         	inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
 		inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
     		inf->status = UP;
+		inf->mtu = MTU;
 
 		inet_ntop(AF_INET, (struct in_addr *) &inf->sourcevip, src, INET_ADDRSTRLEN);
 		inet_ntop(AF_INET, (struct in_addr *) &inf->destvip, dest, INET_ADDRSTRLEN);
 		printf(_MAGENTA_"\tBringing up interface %s -> %s\n"_NORMAL_, src, dest);
 
-		/* block for testing fragmentation
+		/* for fragmentation testing purposes
 		if(!strcmp(src, "10.116.89.157") || !strcmp(dest, "10.116.89.157")){
-			printf("link A-B: MTU is 30\n");
-			inf->mtu=30;
+			printf("link A-B: MTU is 36\n");
+			inf->mtu=36;
 		} else {
-			printf("link B-C: MTU is 25\n");
-			inf->mtu=25;
+			printf("link B-C: MTU is 28\n");
+			inf->mtu=28;
 		} */
     		
-	        inf->sourcevip = ntohl(sing->local_virt_ip.s_addr);
-		inf->destvip = ntohl(sing->remote_virt_ip.s_addr);
-	    	inf->status = UP;
-    	
-	    	inet_ntop(AF_INET, ((struct in_addr *)&(inf->sourcevip)), src, INET_ADDRSTRLEN);
-		inet_ntop(AF_INET, ((struct in_addr *)&(inf->destvip)), dest, INET_ADDRSTRLEN);
-		//printf("\tBringing up interface %s -> %s\n", src, dest);
-    	
 		list_append(interfaces, inf);
 
 		FD_SET(inf->sockfd, &masterfds);
@@ -717,6 +799,9 @@ int setup_interface(char *filename) {
 	return 0;
 }
 
+
+
+//does get_addr and all that to set up a socket and returns its fd number to the caller
 int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
 	
 	struct addrinfo *p;
@@ -755,6 +840,7 @@ int get_socket (uint16_t portnum, struct addrinfo **source, int type) {
 }
 
 
+//wrapper function for get_addrinfo() and its steps
 int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
 	
 	int status;
@@ -775,6 +861,7 @@ int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local) {
 }
 
 
+//as name suggests
 void print_interfaces () 
 {
 	node_t *curr;
@@ -790,6 +877,7 @@ void print_interfaces ()
 	}
 }		
 
+//as name suggests
 void print_routes () 
 {
 	rtu_routing_entry *tmp;

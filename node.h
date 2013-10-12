@@ -24,6 +24,9 @@
 #define OWN_COST	0
 #define REQUEST 	1
 #define RESPONSE	2
+#define MTU		1400
+
+#define NOOFFSET	200
 
 #define IPHDRSIZE sizeof(struct iphdr)
 
@@ -35,6 +38,8 @@
 typedef struct interface_t interface_t;
 typedef struct interface_t 			interface_t;
 typedef struct rtu_routing_entry 	rtu_routing_entry;
+typedef struct frag_ip frag_ip;
+typedef struct frag_list frag_list;
 
 struct interface_t{
 	int id;
@@ -45,7 +50,7 @@ struct interface_t{
 	uint32_t destvip;
 	bool status;
 
-	//int mtu;
+	int mtu;
 };
 
 struct rtu_routing_entry {
@@ -56,6 +61,19 @@ struct rtu_routing_entry {
 	time_t ttl;
 	
 	UT_hash_handle hh;
+};
+
+struct frag_list{
+	list_t *list;
+	uint32_t list_id;
+	UT_hash_handle hh;
+};
+
+struct frag_ip {
+	char *data;
+	int datasize;
+	uint16_t offset;
+	frag_ip *next;
 };
 
 int get_socket (uint16_t portnum, struct addrinfo **source, int type);
@@ -77,10 +95,11 @@ int down_interface(int id);
 int routing_table_send_request(interface_t *port);
 
 //take whatever info necessary and make an IP packet
-int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet, int offset, int ident);
+int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet, uint16_t offset, uint16_t ident);
 //take the packet and send to the specified interface
 int send_ip(interface_t *inf, char *packet, int packetsize);
 //deencapsulate packet and put it in a malloc-ed iphdr
 int id_ip_packet(char *packet, struct iphdr **ipheader);
 
-int fragment_send(interface_t *nexthop, char **data, int datasize, int *offset, uint32_t iporigin, uint32_t ipdest);
+void fragment_send(interface_t *nexthop, char **data, int datasize, uint16_t *offset, uint32_t iporigin, uint32_t ipdest, uint16_t ident);
+
