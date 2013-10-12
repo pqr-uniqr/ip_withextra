@@ -14,6 +14,7 @@
 
 #define RECVBUFSIZE 	65536
 #define CMDBUFSIZE 	1024
+#define MAXIDENT	10
 
 #define LOCALDELIVERY 	1
 #define FORWARD 	0
@@ -44,6 +45,8 @@ struct interface_t{
 	uint32_t sourcevip;
 	uint32_t destvip;
 	bool status;
+
+	int mtu;
 };
 
 struct rtu_routing_entry {
@@ -74,9 +77,10 @@ int down_interface(int id);
 int routing_table_send_request(interface_t *port);
 
 //take whatever info necessary and make an IP packet
-int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet);
+int encapsulate_inip(uint32_t src_vip, uint32_t dest_vip, uint8_t protocol, void *data, int datasize, char **packet, int offset, int ident);
 //take the packet and send to the specified interface
 int send_ip(interface_t *inf, char *packet, int packetsize);
 //deencapsulate packet and put it in a malloc-ed iphdr
 int id_ip_packet(char *packet, struct iphdr **ipheader);
 
+int fragment_send(interface_t *nexthop, char **data, int datasize, int *offset, uint32_t iporigin, uint32_t ipdest);
