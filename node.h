@@ -28,6 +28,8 @@
 
 #define NOOFFSET	200
 
+#define LOCAL		1
+
 #define IPHDRSIZE sizeof(struct iphdr)
 
 #define IP 0
@@ -81,14 +83,16 @@ int get_addr(uint16_t portnum, struct addrinfo **addr, int type, int local);
 
 void print_interfaces();
 int setup_interface(char *filename);
+void print_help();
 
 //temporary function for looking up interfaces
 uint32_t route_lookup(uint32_t final_dest);
 interface_t *inf_tosendto(uint32_t dest_vip);
 //send out RIP request packets to every local interfaces
 
-int up_interface(int id);
-int down_interface(int id);
+int min(int a, int b);
+void up_interface(int id);
+void down_interface(int id);
 
 
 //functions for making packets and sending them out
