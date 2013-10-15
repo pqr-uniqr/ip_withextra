@@ -35,7 +35,7 @@
 #define IP 0
 #define RIP 200
 
-#define REFRESH_TIME	30
+#define REFRESH_TIME	15
 
 typedef struct interface_t interface_t;
 typedef struct interface_t 			interface_t;
@@ -93,6 +93,7 @@ interface_t *inf_tosendto(uint32_t dest_vip);
 int min(int a, int b);
 void up_interface(int id);
 void down_interface(int id);
+void set_mtu(int inf_num, int mtu);
 
 
 //functions for making packets and sending them out
