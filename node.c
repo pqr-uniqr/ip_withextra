@@ -1,6 +1,8 @@
 #include "csupport/parselinks.c"
 #include "csupport/list.c"
 #include "csupport/ipsum.c"
+#include "csupport/colordefs.h"
+#include "csupport/uthash.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -13,13 +15,9 @@
 #include <string.h>
 #include <errno.h>
 #include <stdbool.h>
-#include <mcheck.h>
-#include <signal.h>
-#include "csupport/colordefs.h"
-#include "csupport/uthash.h"
+#include <stdint.h>
 
 #include "node.h"
-#include "routes.h"
 
 
 int interface_count = 0, maxfd;
@@ -27,7 +25,6 @@ list_t  *interfaces, *routes;
 fd_set masterfds;
 rtu_routing_entry *routing_table;
 frag_list *piecekeeper;
-
 
 int main ( int argc, char *argv[]) {
 
@@ -155,6 +152,7 @@ int main ( int argc, char *argv[]) {
 							frag_list *l;
 							HASH_FIND(hh, piecekeeper, &l_id, sizeof(uint32_t), l);
 							if(l == NULL){
+								printf("first fragment of this series of fragments\n");
 								l= malloc(sizeof(frag_list));
 								l->list_id = l_id;
 								list_init(&(l->list));
@@ -177,14 +175,16 @@ int main ( int argc, char *argv[]) {
 								for(curr=l->list->head;curr!=NULL;curr=curr->next){
 									frag_ip *f = (frag_ip *)curr->data;
 									total_size+=f->datasize;
+									printf("total_size %d\n", total_size);
 								}
 								char *buffer = malloc(total_size + 1);
 								for(curr=l->list->head;curr!=NULL;curr=curr->next){
 									frag_ip *f = (frag_ip *)curr->data;
-									memcpy(buffer+(f->offset)*8, f->data, f->datasize);
+									printf("at offset %d: %s\n", f->offset, f->data);
+									memcpy(buffer+f->offset, f->data, f->datasize);
 									free(f->data);
 								}
-								buffer[total_size+1] = '\0';
+								buffer[total_size] = '\0';
 								printf("%s\n", buffer);
 								free(buffer);
 
@@ -215,6 +215,7 @@ int main ( int argc, char *argv[]) {
 					//fragmentation for forwarding
 					if(received_bytes > inf->mtu){
 						printf("packet to small for this link's MTU- fragmeting\n");
+						data[received_bytes-IPHDRSIZE] = '\0';
 
 						char *packet = malloc(IPHDRSIZE + strlen(data));
 						//if this packet had already been fragmented, we must fragment it without changing the 
@@ -367,6 +368,7 @@ int main ( int argc, char *argv[]) {
 
 //set MTU of an interface
 void set_mtu(int inf_num, int mtu){
+	printf("mtu set\n");
 	node_t *curr;
 	for(curr=interfaces->head;curr!=NULL;curr=curr->next){
 		interface_t *i = curr->data;
@@ -439,6 +441,7 @@ void up_interface(int id){
 //When a given packet must be broken down into n fragments, this function will send up to the n-1'th fragment
 //how the last fragment is sent is up to the caller
 void fragment_send (interface_t *nexthop, char **data, int datasize, uint16_t *offset, uint32_t iporigin, uint32_t ipdest, uint16_t ident){
+	printf("fragment_send()\n");
 	*offset += 1<<13;
 	int maxpayload = nexthop->mtu - IPHDRSIZE;
 	char *dataend = *data + datasize;
@@ -447,7 +450,7 @@ void fragment_send (interface_t *nexthop, char **data, int datasize, uint16_t *o
 	while(*data < dataend-maxpayload){
 		int packetsize = encapsulate_inip(iporigin, ipdest, IP, *data, maxpayload, &packet, *offset, ident);
 		send_ip(nexthop, packet, packetsize);
-		*offset+=maxpayload/8;
+		*offset+=maxpayload;
 		*data+=maxpayload;
 	}
 }

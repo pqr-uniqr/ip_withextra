@@ -1,16 +1,19 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <netdb.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <string.h>
-#include <errno.h>
-#include <stdbool.h>
+#include <netdb.h>
+#include <netinet/ip.h>
+
+#include "csupport/list.h"
 #include "csupport/uthash.h"
-#include "csupport/parselinks.h"
+
+#define INFINITY 	16
+#define MAX_ROUTES	64
+#define HOP_COST	1
+
+#define NEIGHBOUR	0
+#define ANONYMOUS	1
 
 #define RECVBUFSIZE 	65536
 #define CMDBUFSIZE 	1024
@@ -37,11 +40,25 @@
 
 #define REFRESH_TIME	15
 
+
+typedef struct rip_entry 	rip_entry;
+typedef struct rip_packet 	rip_packet;
 typedef struct interface_t interface_t;
 typedef struct interface_t 			interface_t;
 typedef struct rtu_routing_entry 	rtu_routing_entry;
 typedef struct frag_ip frag_ip;
 typedef struct frag_list frag_list;
+
+struct rip_entry {
+	uint32_t cost;
+	uint32_t addr;
+};
+
+struct rip_packet {
+	uint16_t command;
+	uint16_t num_entries;
+	rip_entry entries[];
+};
 
 struct interface_t{
 	int id;
@@ -108,3 +125,22 @@ int id_ip_packet(char *packet, struct iphdr **ipheader);
 
 void fragment_send(interface_t *nexthop, char **data, int datasize, uint16_t *offset, uint32_t iporigin, uint32_t ipdest, uint16_t ident);
 
+
+int init_routing_table();
+void print_routes();
+int route_table_add(uint32_t srcVip, uint32_t destVip, int cost, int local);
+rtu_routing_entry *find_route_entry(uint32_t id);
+
+rip_packet *routing_table_send_response(uint32_t dest, int *totsize);
+void routing_table_print_packet(rip_packet *packet);
+
+//temporary function for one hop routing
+uint32_t routing_table_get_nexthop(uint32_t dest);
+
+interface_t *inf_tosendto(uint32_t dest_vip);
+
+int routing_table_update(rip_packet *table, uint32_t src_addr, uint32_t dest_addr, int type);
+int route_table_update(rip_packet *table, uint32_t inf_from);
+
+void routing_table_refresh_entries();
+void routing_table_send_update();
